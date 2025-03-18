@@ -6,37 +6,8 @@ Author: yruns
 Description: This file contains ...
 """
 import numpy as np
+from scipy.spatial import cKDTree
 import open3d as o3d
-
-
-def augment_point_cloud(points, scale_range=(0.8, 1.2), rotation_range=(0, 2 * np.pi)):
-    """
-    对点云进行随机缩放和旋转的增强。
-
-    参数:
-        points: ndarray of shape (N, 3), 点云坐标。
-        scale_range: tuple (min_scale, max_scale), 缩放比例的范围。
-        rotation_range: tuple (min_angle, max_angle), 旋转角度范围 (弧度制)。
-
-    返回:
-        增强后的点云，shape为(N, 3)。
-    """
-    # 随机缩放
-    scale = np.random.uniform(scale_range[0], scale_range[1])
-    scaled_points = points * scale
-
-    # 随机旋转（绕Z轴）
-    theta = np.random.uniform(rotation_range[0], rotation_range[1])
-
-    rotation_matrix = np.array([
-        [np.cos(theta), -np.sin(theta), 0],
-        [np.sin(theta), np.cos(theta), 0],
-        [0, 0, 1]
-    ])
-
-    rotated_points = scaled_points.dot(rotation_matrix)
-
-    return rotated_points
 
 
 def add_nonuniform_noise(points, center, radius, scale_factor=0.02, decay="linear"):
@@ -127,7 +98,7 @@ def add_shape_anomaly_with_normals(points, center, radius, scale_factor=0.02, ou
 
     # 计算变形幅度（在 radius 内逐渐衰减）
     region_distances = distances[region_indices]
-    deform_scale = deform_strength * np.exp(-(region_distances ** 2) / (2 * (radius / 2) ** 2))
+    deform_scale = deform_strength * np.exp(-(region_distances**2) / (2*(radius/2)**2))
 
     # 调整变形方向
     direction = normals[region_indices]
@@ -142,7 +113,6 @@ def add_shape_anomaly_with_normals(points, center, radius, scale_factor=0.02, ou
 
     return points, region_indices
 
-
 def simulate_realistic_industrial_anomaly(points, max_num_region=8, noise_radius_range=(0.05, 0.10)):
     anomaly_types = ['noise', 'structure', 'shape']
 
@@ -156,6 +126,8 @@ def simulate_realistic_industrial_anomaly(points, max_num_region=8, noise_radius
     min_ = points.min()
     scale = max_ - min_
     selected_radii = np.random.uniform(noise_radius_range[0] * scale, noise_radius_range[1] * scale, num_regions)
+
+    print("Num regions: ", num_regions)
 
     modified_indices = np.zeros(len(points), dtype=np.int32)
     for idx, center in enumerate(selected_centers):
@@ -174,6 +146,9 @@ def simulate_realistic_industrial_anomaly(points, max_num_region=8, noise_radius
 
 
 def voxel_downsample_with_anomalies(points, modified_mask=None, voxel_size=0.5):
+    if modified_mask is None:
+        modified_mask = np.zeros(len(points))
+
     # 计算每个点所属的voxel坐标
     voxel_coords = np.floor(points / voxel_size).astype(np.int32)
 
@@ -202,3 +177,8 @@ def voxel_downsample_with_anomalies(points, modified_mask=None, voxel_size=0.5):
     np.maximum.at(voxel_labels, inverse_indices, modified_mask.astype(int))
 
     return voxel_points, voxel_representative_indices, voxel_labels
+
+
+
+
+

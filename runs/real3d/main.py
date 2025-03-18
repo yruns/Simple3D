@@ -60,7 +60,7 @@ class Trainer(TrainerBase):
             anomaly_score_num_nn=self.args.anomaly_scorer_num_nn,
             nn_method=nn_method,
             basic_template=None,
-            voxel_size=1.0,
+            voxel_size=self.args.voxel_size,
             noise_radius_range=(0.05, 0.10),
 
             embedding_size=None,
@@ -226,7 +226,7 @@ def main_worker(args):
     args.output_dir = f"output/Simple3D-{now}"
     args.log_project = "Simple3D"
 
-    args.log_tag = f"{args.manual_seed}-{now}"
+    args.log_tag = f"{args.manual_seed}-{now}-vs{args.voxel_size}-noaug"
     comm.seed_everything(args.manual_seed)
     comm.copy_codebase(args.output_dir)
 
@@ -239,10 +239,9 @@ def main_worker(args):
             CheckpointLoader(state_path=args.model_path, resume=not args.eval),
             IterationTimer(warmup_iter=2),
             InformationWriter(log_interval=1),
-            ClsEvaluator(),
+            ClsEvaluator(interval=args.eval_interval if not args.debug else 1),
             # Visualizer(),
             CheckpointSaver(),
-            # ClsTester(test_only=args.eval),
         ])
 
         if not args.eval:
@@ -258,6 +257,8 @@ if __name__ == "__main__":
     parser.add_argument('--faiss_on_gpu', default=True, type=bool)
     parser.add_argument('--faiss_num_workers', default=8, type=int)
     parser.add_argument('--anomaly_scorer_num_nn', default=1, type=int)
+    parser.add_argument('--eval_interval', type=int, default=4)
+    parser.add_argument('--voxel_size', type=float, default=1.0)
 
     parser.add_argument('--eval', action="store_true", help='is evaluation')
     parser.add_argument('--model_path', type=str, default=None, help='model path')

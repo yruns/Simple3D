@@ -247,25 +247,16 @@ class SimpleNet(torch.nn.Module):
     def embed_pointmae(
             self,
             point_cloud: torch.Tensor,
-            trianing: bool = False,
+            gt_mask=None,
     ):
-        """
-        Embeds the point cloud using the registered template and point-MAE.
-
-        Args:
-            point_cloud (torch.Tensor): Input point cloud of shape (1, N, 3).
-        Returns:
-            tuple: (Extracted features, center_idx)
-            :param trianing:
-        """
         point_cloud = point_cloud.squeeze(0).cpu().numpy()
-        modified_indices = None
-        if trianing:
-            point_cloud = augment_point_cloud(point_cloud)
-            point_cloud, modified_indices = simulate_realistic_industrial_anomaly(
+        training = gt_mask is None
+        if training:     # Training
+            # point_cloud = augment_point_cloud(point_cloud)
+            point_cloud, gt_mask = simulate_realistic_industrial_anomaly(
                 point_cloud, max_num_region=8, noise_radius_range=self.noise_radius_range)
         voxel_points, voxel_indices, voxel_labels = voxel_downsample_with_anomalies(
-            point_cloud, modified_indices, voxel_size=self.voxel_size)
+            point_cloud, gt_mask, voxel_size=self.voxel_size)
 
         # Registration
         # point_cloud = get_registration_refine_np(
@@ -284,7 +275,7 @@ class SimpleNet(torch.nn.Module):
                 voxel_indices
             )
 
-        if trianing:
+        if training:
             return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), center_idx, voxel_labels
         return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), center_idx, voxel_indices
 
@@ -299,7 +290,7 @@ class SimpleNet(torch.nn.Module):
         assert input_pointcloud.shape[0] == 1, "Batch size must be 1."
 
         # True features
-        features, _, voxel_labels = self.embed_pointmae(input_pointcloud, trianing=True)
+        features, _, voxel_labels = self.embed_pointmae(input_pointcloud)
         if self.pre_proj > 0 and self.pre_projection is not None:
             features = self.pre_projection(features)
 
@@ -307,6 +298,7 @@ class SimpleNet(torch.nn.Module):
         voxel_labels = torch.from_numpy(voxel_labels).float().to(self.device)
         voxel_labels = (voxel_labels != 0).long()
         logits = self.discriminator(features).squeeze(-1)
+        logits = torch.sigmoid(logits)
 
         return logits, voxel_labels
 

@@ -46,6 +46,14 @@ class Real3DDataset(Dataset):
             self.sample_list = [s for s in self.sample_list if 'temp' not in s]
             self.gt_path = os.path.join(dataset_dir, cls_name, 'gt')
 
+            self.cache_gt = {}
+            try:
+                import pickle
+                with open("checkpoints/real3d.pkl", "rb") as f:
+                    self.cache_gt = pickle.load(f)
+            except:
+                print("No cache file found")
+
         self.sample_list.sort()
 
     @staticmethod
@@ -74,7 +82,12 @@ class Real3DDataset(Dataset):
                 # Anomalous sample with ground truth
                 filename = pathlib.Path(sample_path).stem
                 txt_path = os.path.join(self.gt_path, filename + '.txt')
-                pcd_data = np.genfromtxt(txt_path, delimiter=' ')   # TODO: preprocess to speed up
+
+                if txt_path not in self.cache_gt:
+                    pcd_data = np.genfromtxt(txt_path, delimiter=' ')  # TODO: preprocess to speed up
+                    self.cache_gt[txt_path] = pcd_data
+                else:
+                    pcd_data = self.cache_gt[txt_path]
                 pointcloud = pcd_data[:, :3]
                 mask = pcd_data[:, 3].astype(np.float32)
                 label = 1  # Anomalous label
@@ -87,3 +100,12 @@ class Real3DDataset(Dataset):
 
     def __len__(self):
         return len(self.sample_list)
+
+    # destory function
+    def __del__(self):
+        if self.split == 'test':
+            import pickle
+            with open("checkpoints/real3d.pkl", "wb") as f:
+                pickle.dump(self.cache_gt, f)
+            print("Cache saved!")
+

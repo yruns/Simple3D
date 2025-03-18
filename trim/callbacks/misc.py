@@ -105,9 +105,9 @@ class InformationWriter(CallbackBase):
             self.model_output_keys = terminal_log.keys()
             for key in self.model_output_keys:
                 self.trainer.storage.put_scalar(key, terminal_log[key])
-                self.trainer.wandb.log({
-                    key: terminal_log[key],
-                })
+                # self.trainer.wandb.log({
+                #     key: terminal_log[key],
+                # })
 
         for key in self.model_output_keys:
             self.trainer.comm_info["iter_info"] += "{key}: {value:.4f} ".format(
