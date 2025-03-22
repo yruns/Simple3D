@@ -20,10 +20,8 @@ import tqdm
 from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
-import torch.nn.functional as F
 
 import patchcore
-from feature_extractors.ransac_position import get_registration_np, get_registration_refine_np
 from utils.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies, augment_point_cloud
 
 LOGGER = logging.getLogger(__name__)
@@ -252,22 +250,21 @@ class SimpleNet(torch.nn.Module):
             gt_mask=None,
     ):
         point_cloud = point_cloud.squeeze(0).cpu().numpy()
-
-        # registration
-        point_cloud = get_registration_np(point_cloud, self.basic_template)
-
         training = gt_mask is None
-        if not training:
-            point_cloud = get_registration_np(point_cloud, self.basic_template)
-        # if training:     # Training
-        #     # point_cloud = augment_point_cloud(point_cloud)
-        #     point_cloud, gt_mask = simulate_realistic_industrial_anomaly(
-        #         point_cloud, max_num_region=8, noise_radius_range=self.noise_radius_range)
-        if gt_mask is None:
-            gt_mask = np.zeros(len(point_cloud))
-
+        if training:     # Training
+            # point_cloud = augment_point_cloud(point_cloud)
+            point_cloud, gt_mask = simulate_realistic_industrial_anomaly(
+                point_cloud, max_num_region=8, noise_radius_range=self.noise_radius_range)
         voxel_points, voxel_indices, voxel_labels = voxel_downsample_with_anomalies(
             point_cloud, gt_mask, voxel_size=self.voxel_size)
+
+        # Registration
+        # point_cloud = get_registration_refine_np(
+        #     point_cloud,
+        #     self.basic_template
+        # )
+        # Alternatively:
+        # reg_data = point_cloud.squeeze(0).cpu().numpy()
 
         pointcloud_data = torch.from_numpy(point_cloud).permute(1, 0).unsqueeze(0)
         pointcloud_data = pointcloud_data.cuda().float()
@@ -289,43 +286,19 @@ class SimpleNet(torch.nn.Module):
         Args:
             batch_data
         """
-        assert self.training
-        self.mix_noise = 1
-        self.noise_std = 0.1
-
         input_pointcloud, mask, label, path = batch_data
         assert input_pointcloud.shape[0] == 1, "Batch size must be 1."
 
         # True features
-        true_feats, _, voxel_labels = self.embed_pointmae(input_pointcloud)
+        features, _, voxel_labels = self.embed_pointmae(input_pointcloud)
         if self.pre_proj > 0 and self.pre_projection is not None:
-            true_feats = self.pre_projection(true_feats)
+            features = self.pre_projection(features)
 
-        noise_idxs = torch.randint(0, self.mix_noise, torch.Size([true_feats.shape[0]]))
-        noise_one_hot = torch.nn.functional.one_hot(noise_idxs, num_classes=self.mix_noise).cuda() # (N, K)
-        noise = torch.stack([
-            torch.normal(0, self.noise_std * 1.1 ** k, true_feats.shape)
-            for k in range(self.mix_noise)], dim=1).to(self.device)  # (N, K, C)
-        noise = (noise * noise_one_hot.unsqueeze(-1)).sum(1)
-        fake_feats = true_feats.clone() + noise
-        feats = torch.cat([true_feats, fake_feats])
+        # Discriminator forward
+        voxel_labels = torch.from_numpy(voxel_labels).float().to(self.device)
+        voxel_labels = (voxel_labels != 0).long()
+        logits = self.discriminator(features).squeeze(-1)
+        logits = torch.sigmoid(logits)
 
-        scores = self.discriminator(feats)
-
-        true_scores = scores[:len(true_feats)]
-        fake_scores = scores[len(fake_feats):]
-
-        th = self.dsc_margin
-        p_true = (true_scores.detach() >= th).sum() / len(true_scores)
-        p_fake = (fake_scores.detach() < -th).sum() / len(fake_scores)
-        true_loss = torch.clip(-true_scores + th, min=0)
-        fake_loss = torch.clip(fake_scores + th, min=0)
-
-        gt_labels = torch.cat([torch.zeros_like(true_scores), torch.ones_like(fake_scores)])
-        auroc = roc_auc_score(gt_labels.detach().cpu().numpy(), scores.detach().cpu().numpy())
-        ap = average_precision_score(gt_labels.detach().cpu().numpy(), scores.detach().cpu().numpy())
-
-        loss = true_loss.mean() + fake_loss.mean()
-
-        return scores, loss, p_true, p_fake, auroc, ap
+        return logits, voxel_labels
 

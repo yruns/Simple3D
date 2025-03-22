@@ -1,2 +1,7 @@
 
-eval/
+assets/eval/
+.idea
+
+__pycache__/
+*.pyc
+

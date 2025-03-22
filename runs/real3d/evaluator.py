@@ -14,14 +14,15 @@ from utils.metrics import compute_metrics
 
 class ClsEvaluator(CallbackBase):
 
-    def __init__(self, interval):
+    def __init__(self, interval, test):
         self.best_acc = 0.0
         self.interval = interval
+        self.test = test
 
     def on_training_epoch_end(self):
         # eval per 4 epochs
         cur_epoch = self.trainer.epoch
-        if (cur_epoch + 1) % self.interval != 0:
+        if (cur_epoch + 1) % self.interval != 0 and not self.test:
             return
 
         torch.cuda.empty_cache()
@@ -35,9 +36,9 @@ class ClsEvaluator(CallbackBase):
         features, _, voxel_indices = model.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
         if model.pre_proj > 0 and model.pre_projection is not None:
             features = model.pre_projection(features)
-        logits = model.discriminator(features).squeeze(-1)
+        scores = -model.discriminator(features).squeeze(-1)
 
-        return logits.detach().cpu().numpy(), voxel_indices
+        return scores.detach().cpu().numpy(), voxel_indices
 
     @torch.no_grad()
     def eval(self):
@@ -53,16 +54,16 @@ class ClsEvaluator(CallbackBase):
             batch_data = comm.move_tensor_to_device(batch_data)
 
             pointcloud, mask, label, path = batch_data
-            logit, voxel_indices = self.eval_step(pointcloud, mask)
+            scores, voxel_indices = self.eval_step(pointcloud, mask)
 
-            logits.append(logit)
-            mask_pred.append(logit)
+            logits.append(scores)
+            mask_pred.append(scores)
             mask_gt.append(mask.squeeze(0).cpu().numpy()[voxel_indices])
             label_gt.append(label.cpu().numpy())
 
             save_dict["data"].append({
                 "pointcloud": pointcloud.squeeze(0).cpu().numpy()[voxel_indices],
-                "pred": logit,
+                "pred": scores,
                 "mask": mask.squeeze(0).cpu().numpy()[voxel_indices],
                 "mask_full": mask[0].cpu().numpy(),
                 "label": label.squeeze(0).cpu().numpy(),
@@ -75,14 +76,18 @@ class ClsEvaluator(CallbackBase):
         mask_gt = np.concatenate(mask_gt)
         label_gt = np.concatenate(label_gt)
 
-        p_ap, p_auroc, p_true, p_fake, f1 = compute_metrics(logits, mask_pred, mask_gt, label_gt)
+        # normalize
+        mask_pred = (mask_pred - mask_pred.min()) / (mask_pred.max() - mask_pred.min())
+
+        p_ap, p_auroc, p_true, p_fake, f1, threshold = compute_metrics(logits, mask_pred, mask_gt, label_gt)
 
         metrics = {
             "val_pixel_ap": p_ap,
             "val_pixel_auroc": p_auroc,
             "val_p_true": p_true,
             "val_p_fake": p_fake,
-            "val_f1": f1
+            "val_f1": f1,
+            "threshold": threshold
         }
         self.trainer.wandb.log(metrics)
         save_dict["metrics"] = metrics
@@ -95,6 +100,7 @@ class ClsEvaluator(CallbackBase):
                 self.trainer.output_dir, "eval", f"{self.trainer.epoch}_{'best' if p_auroc >= self.best_acc else ''}.pkl"
         ), "wb") as f:
             pickle.dump(save_dict, f)
+            self.trainer.logger.info("Save evaluation results to %s" % f.name)
 
         self.trainer.comm_info["current_metric_value"] = p_auroc
         self.trainer.comm_info["current_metric_name"] = "p_auroc"

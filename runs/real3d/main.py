@@ -69,15 +69,15 @@ class Trainer(TrainerBase):
             gan_epochs=4,  # 4
             dsc_layers=2,  # 2
             dsc_hidden=None,  # 1024
-            dsc_margin=0.8,  # 0.5
-            dsc_lr=0.0002,
+            dsc_margin=0.2,  # 0.5
+            dsc_lr=0.0001,
             train_backbone=False,
-            cos_lr=False,
+            cos_lr=True,
             lr=1e-3,
             pre_proj=1,  # 1
             proj_layer_type=0,
         )
-        self.max_epoch = self.model.meta_epochs * self.model.gan_epochs
+        self.max_epoch = self.model.meta_epochs * self.model.gan_epochs + 1
 
         num_parameters = comm.count_parameters(self.model, trainable=True)
         self.wandb.update({"model_size": f"{num_parameters / 1e6}M"})
@@ -102,6 +102,10 @@ class Trainer(TrainerBase):
             drop_last=False
         )
 
+        # set basic template
+        for data, mask, label, path in self.train_loader:
+            self.model.basic_template = data.squeeze(0).cpu().numpy()
+            break
         self.logger.info(f"length of training dataset: {len(self.train_loader.dataset)}")
         self.logger.info(f"length of validation dataset: {len(self.val_loader.dataset)}")
 
@@ -161,36 +165,36 @@ class Trainer(TrainerBase):
 
             # Trace the loss, pixel_ap, pixel_auroc, p_true, p_fake
             loss = np.array(self.all_loss).mean()
-            pixel_ap = np.array(self.all_pixel_ap).mean()
-            pixel_auroc = np.array(self.all_pixel_auroc).mean()
+            p_ap = np.array(self.all_pixel_ap).mean()
+            p_auroc = np.array(self.all_pixel_auroc).mean()
             p_true = np.array(self.all_p_true).mean()
             p_fake = np.array(self.all_p_fake).mean()
-            f1 = np.array(self.all_f1).mean()
+            # f1 = np.array(self.all_f1).mean()
             self.logger.info(
                 f"Epoch {self.epoch}: "
                 f"loss={loss:.3f}, "
-                f"pixel_ap={pixel_ap:.3f}, "
-                f"pixel_auroc={pixel_auroc:.3f}, "
+                f"p_ap={p_ap:.3f}, "
+                f"p_auroc={p_auroc:.3f}, "
                 f"p_true={p_true:.3f}, "
                 f"p_fake={p_fake:.3f}, "
-                f"f1={f1:.3f}"
+                # f"f1={f1:.3f}"
             )
             self.wandb.log({
                 "train_loss": loss,
-                "train_pixel_ap": pixel_ap,
-                "train_pixel_auroc": pixel_auroc,
+                # "train_pixel_ap": pixel_ap,
+                # "train_pixel_auroc": pixel_auroc,
                 "train_p_true": p_true,
                 "train_p_fake": p_fake,
-                "train_f1": f1
+                # "train_f1": f1
             })
         super().on_training_epoch_end()
 
     def training_step(self, batch_data, batch_index):
         batch_data = comm.move_tensor_to_device(batch_data)
-        logits, voxel_labels = self.model(batch_data)
+        scores, loss, p_true, p_fake, auroc, ap = self.model(batch_data)
 
-        loss = metrics.focal_loss(logits, voxel_labels)
-        p_ap, p_auroc, p_true, p_fake, f1 = metrics.compute_metrics(None, logits, voxel_labels, None)
+        # scores, loss, p_true, p_fake = metrics.focal_loss(logits, voxel_labels)
+        # p_ap, p_auroc, p_true, p_fake, f1 = metrics.compute_metrics(None, scores, voxel_labels, None)
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -198,18 +202,18 @@ class Trainer(TrainerBase):
 
         log_dict = {
             "loss": loss.item(),
-            "pixel_ap": p_ap,
-            "pixel_auroc": p_auroc,
-            "p_true": p_true,
-            "p_fake": p_fake,
-            "f1": f1
+            "p_ap": ap,
+            "p_auroc": auroc,
+            "p_true": p_true.detach().cpu().numpy(),
+            "p_fake": p_fake.detach().cpu().numpy(),
+            # "f1": f1
         }
         self.all_loss.append(log_dict["loss"])
-        self.all_pixel_ap.append(log_dict["pixel_ap"])
-        self.all_pixel_auroc.append(log_dict["pixel_auroc"])
+        self.all_pixel_ap.append(log_dict["p_ap"])
+        self.all_pixel_auroc.append(log_dict["p_auroc"])
         self.all_p_true.append(log_dict["p_true"])
         self.all_p_fake.append(log_dict["p_fake"])
-        self.all_f1.append(log_dict["f1"])
+        # self.all_f1.append(log_dict["f1"])
         self.comm_info["terminal_log"] = log_dict
         self.comm_info["wandb_log"] = {}
 
@@ -239,7 +243,7 @@ def main_worker(args):
             CheckpointLoader(state_path=args.model_path, resume=not args.eval),
             IterationTimer(warmup_iter=2),
             InformationWriter(log_interval=1),
-            ClsEvaluator(interval=args.eval_interval if not args.debug else 1),
+            ClsEvaluator(interval=args.eval_interval if not args.debug else 1, test=args.eval),
             # Visualizer(),
             CheckpointSaver(),
         ])

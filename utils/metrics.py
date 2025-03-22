@@ -53,7 +53,7 @@ def compute_metrics(logits, mask_pred, mask_gt, label_gt):
     p_true = (preds[true_indices] == mask_gt[true_indices]).astype(np.float32).mean()
     p_fake = (preds[fake_indices] == mask_gt[fake_indices]).astype(np.float32).mean()
 
-    return p_ap, p_auroc, p_true, p_fake, f1_scores[best_idx]
+    return p_ap, p_auroc, p_true, p_fake, f1_scores[best_idx], best_threshold
 
 
 def compute_imagewise_retrieval_metrics(

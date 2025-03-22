@@ -7,6 +7,9 @@
           <mappings>
             <mapping deploy="/home/shyue/paper-code/anomaly-detection/simple3d" local="$PROJECT_DIR$" web="/" />
           </mappings>
+          <excludedPaths>
+            <excludedPath local="true" path="$PROJECT_DIR$/assets" />
+          </excludedPaths>
         </serverdata>
       </paths>
     </serverData>
