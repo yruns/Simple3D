@@ -194,6 +194,7 @@ class Trainer(TrainerBase):
         logits, voxel_labels = self.model(batch_data)
 
         loss = metrics.focal_loss(logits, voxel_labels)
+        logits = torch.sigmoid(logits)
         p_ap, p_auroc, p_true, p_fake, f1, best_threshold = metrics.compute_metrics(None, logits, voxel_labels, None)
 
         self.optimizer.zero_grad()
