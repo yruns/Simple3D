@@ -79,7 +79,7 @@ class ClsEvaluator(CallbackBase):
         label_gt = np.concatenate(label_gt)
 
         # normalize
-        mask_pred = (mask_pred - mask_pred.min()) / (mask_pred.max() - mask_pred.min())
+        # mask_pred = (mask_pred - mask_pred.min()) / (mask_pred.max() - mask_pred.min())
 
         p_ap, p_auroc, p_true, p_fake, f1, threshold = compute_metrics(logits, mask_pred, mask_gt, label_gt)
 
