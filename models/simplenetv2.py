@@ -22,7 +22,7 @@ from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 
 import patchcore
-from utils.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies, augment_point_cloud
+from utils.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies
 
 LOGGER = logging.getLogger(__name__)
 

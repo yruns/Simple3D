@@ -23,6 +23,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 import patchcore
 from utils.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies
+from feature_extractors.ransac_position import get_registration_np, get_registration_refine_np
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -219,17 +221,6 @@ class SimpleNet(torch.nn.Module):
             hidden=dsc_hidden
         ).to(self.device)
 
-        self.dsc_opt = torch.optim.Adam(
-            self.discriminator.parameters(),
-            lr=self.dsc_lr,
-            weight_decay=1e-5
-        )
-
-        self.dsc_schl = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.dsc_opt,
-            (meta_epochs - aed_meta_epochs) * gan_epochs,
-            self.dsc_lr * 0.4
-        )
         self.dsc_margin = dsc_margin
 
         self.model_dir = ""
@@ -255,16 +246,13 @@ class SimpleNet(torch.nn.Module):
             # point_cloud = augment_point_cloud(point_cloud)
             point_cloud, gt_mask = simulate_realistic_industrial_anomaly(
                 point_cloud)
+            point_cloud = get_registration_refine_np(
+                point_cloud,
+                self.basic_template
+            )
+
         voxel_points, voxel_indices, voxel_labels = voxel_downsample_with_anomalies(
             point_cloud, gt_mask, voxel_size=self.voxel_size)
-
-        # Registration
-        # point_cloud = get_registration_refine_np(
-        #     point_cloud,
-        #     self.basic_template
-        # )
-        # Alternatively:
-        # reg_data = point_cloud.squeeze(0).cpu().numpy()
 
         pointcloud_data = torch.from_numpy(point_cloud).permute(1, 0).unsqueeze(0)
         pointcloud_data = pointcloud_data.cuda().float()
@@ -297,7 +285,6 @@ class SimpleNet(torch.nn.Module):
         # Discriminator forward
         voxel_labels = torch.from_numpy(voxel_labels).float().cuda()
         logits = self.discriminator(features).squeeze(-1)
-        logits = torch.sigmoid(logits)
 
         return logits, voxel_labels
 
