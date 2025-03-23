@@ -181,8 +181,8 @@ class Trainer(TrainerBase):
             )
             self.wandb.log({
                 "train_loss": loss,
-                # "train_pixel_ap": pixel_ap,
-                # "train_pixel_auroc": pixel_auroc,
+                "train_pixel_ap": p_ap,
+                "train_pixel_auroc": p_auroc,
                 "train_p_true": p_true,
                 "train_p_fake": p_fake,
                 # "train_f1": f1
@@ -191,10 +191,10 @@ class Trainer(TrainerBase):
 
     def training_step(self, batch_data, batch_index):
         batch_data = comm.move_tensor_to_device(batch_data)
-        scores, loss, p_true, p_fake, auroc, ap = self.model(batch_data)
+        logits, voxel_labels = self.model(batch_data)
 
-        # scores, loss, p_true, p_fake = metrics.focal_loss(logits, voxel_labels)
-        # p_ap, p_auroc, p_true, p_fake, f1 = metrics.compute_metrics(None, scores, voxel_labels, None)
+        loss = metrics.focal_loss(logits, voxel_labels)
+        p_ap, p_auroc, p_true, p_fake, f1, best_threshold = metrics.compute_metrics(None, logits, voxel_labels, None)
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -202,10 +202,10 @@ class Trainer(TrainerBase):
 
         log_dict = {
             "loss": loss.item(),
-            "p_ap": ap,
-            "p_auroc": auroc,
-            "p_true": p_true.detach().cpu().numpy(),
-            "p_fake": p_fake.detach().cpu().numpy(),
+            "p_ap": p_ap,
+            "p_auroc": p_auroc,
+            "p_true": p_true,
+            "p_fake": p_fake,
             # "f1": f1
         }
         self.all_loss.append(log_dict["loss"])

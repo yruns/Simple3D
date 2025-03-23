@@ -36,7 +36,7 @@ class ClsEvaluator(CallbackBase):
         features, _, voxel_indices = model.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
         if model.pre_proj > 0 and model.pre_projection is not None:
             features = model.pre_projection(features)
-        scores = -model.discriminator(features).squeeze(-1)
+        scores = model.discriminator(features).squeeze(-1)
 
         return scores.detach().cpu().numpy(), voxel_indices
 

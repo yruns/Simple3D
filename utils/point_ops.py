@@ -1,177 +1,77 @@
 """
-File: point_ops.py
-Date: 2025/3/9
+File: utils.py
+Date: 2025/3/22
 Author: yruns
 
 Description: This file contains ...
 """
+
 import numpy as np
 import open3d as o3d
+from matplotlib.colors import to_rgb
 
 
-def augment_point_cloud(points, scale_range=(0.8, 1.2), rotation_range=(0, 2 * np.pi)):
-    """
-    对点云进行随机缩放和旋转的增强。
+def normalize_cube(P):
+    """阶段一：立方体归一化 (对应Localized cube)"""
+    centroid = np.mean(P, axis=0)
+    P_centered = P - centroid
+    scale = np.max(np.linalg.norm(P_centered, axis=1))
+    return P_centered / (scale + 1e-8), centroid, scale
 
-    参数:
-        points: ndarray of shape (N, 3), 点云坐标。
-        scale_range: tuple (min_scale, max_scale), 缩放比例的范围。
-        rotation_range: tuple (min_angle, max_angle), 旋转角度范围 (弧度制)。
+def viewpoint_selection(Pa, N_defect):
+    """改进的视点采样，包含边界检查"""
+    # 在单位球面生成视点（限制在点云包围盒内）
+    bbox_min = np.min(Pa, axis=0)
+    bbox_max = np.max(Pa, axis=0)
 
-    返回:
-        增强后的点云，shape为(N, 3)。
-    """
-    # 随机缩放
-    scale = np.random.uniform(scale_range[0], scale_range[1])
-    scaled_points = points * scale
+    while True:
+        theta = np.random.uniform(0, 2 * np.pi)
+        phi = np.arccos(np.random.uniform(-1, 1))
+        Pv = np.array([np.sin(phi) * np.cos(theta),
+                       np.sin(phi) * np.sin(theta),
+                       np.cos(phi)])
 
-    # 随机旋转（绕Z轴）
-    theta = np.random.uniform(rotation_range[0], rotation_range[1])
+        # 检查视点是否在有效范围内
+        if np.all((Pv >= bbox_min - 0.1) & (Pv <= bbox_max + 0.1)):
+            break
 
-    rotation_matrix = np.array([
-        [np.cos(theta), -np.sin(theta), 0],
-        [np.sin(theta), np.cos(theta), 0],
-        [0, 0, 1]
-    ])
+    # 选择最近邻点块（带距离衰减权重）
+    distances = np.linalg.norm(Pa - Pv, axis=1)
+    indices = np.argpartition(distances, N_defect)[:N_defect]
+    return indices, Pv
 
-    rotated_points = scaled_points.dot(rotation_matrix)
+def apply_deformation(Pa, indices, Pv, mode=None, S=0.3):
+    """阶段三：多模式变形 (对应Deformation solution)"""
+    direction = Pa[indices] - Pv
+    norms = np.linalg.norm(direction, axis=1, keepdims=True)
 
-    return rotated_points
+    if mode is None:
+        mode = np.random.choice(['bulge', 'sink', 'damage'])
 
+    # 不同变形模式的位移矩阵
+    if mode == 'bulge':
+        T = -np.linspace(1, 0, len(indices))[:, np.newaxis]
+    elif mode == 'sink':
+        T = np.linspace(1, 0, len(indices))[:, np.newaxis] * 1.2
+    elif mode == 'damage':
+        T = np.random.randn(len(indices), 3) * 0.3
 
-def add_nonuniform_noise(points, center, radius, scale_factor=0.02, decay="linear"):
-    # 计算点到中心的距离
-    distances = np.linalg.norm(points - center, axis=1)
+    Pa_trans = Pa.copy()
+    Pa_trans[indices] += S * (direction / (norms + 1e-8)) * T
+    return Pa_trans
 
-    # 找到受影响的点
-    region_indices = np.where(distances < radius)[0]
-    if len(region_indices) == 0:
-        return points, region_indices  # 无点受影响
+def simulate_realistic_industrial_anomaly(P, defect_ratio=0.004, S=0.03):
+    Pa_normalized, centroid, scale = normalize_cube(P)
 
-    # 计算点云整体尺度，使噪声标准差自适应
-    point_cloud_scale = points.max() - points.min()
-    max_std = scale_factor * point_cloud_scale  # 使噪声强度随点云大小变化
+    N_defect = int(len(Pa_normalized) * defect_ratio)
+    indices, Pv = viewpoint_selection(Pa_normalized, N_defect)
 
-    # 计算噪声衰减系数
-    normalized_distances = distances[region_indices] / radius  # 归一化 [0,1]
+    Pa_deformed = apply_deformation(Pa_normalized, indices, Pv, None, S)
 
-    if decay == "linear":
-        noise_scale = 1 - normalized_distances  # 线性衰减
-    elif decay == "cosine":
-        noise_scale = np.cos(normalized_distances * np.pi / 2)  # 余弦衰减
-    elif decay == "exponential":
-        noise_scale = np.exp(-4 * normalized_distances)  # 指数衰减
-    else:
-        raise ValueError("Unsupported decay type. Use 'linear', 'cosine', or 'exponential'.")
-
-    # 生成非均匀噪声
-    noise = np.random.normal(0, max_std, size=(len(region_indices), 3)) * noise_scale[:, np.newaxis]
-
-    # 施加噪声
-    points[region_indices] += noise
-
-    return points, region_indices
-
-
-def add_structured_anomaly(points, center, radius, scale_factor=0.02, outward=True):
-    # 计算所有点到中心点的距离
-    distances = np.linalg.norm(points - center, axis=1)
-
-    # 找出位于影响范围内的点
-    region_indices = np.where(distances < radius)[0]
-
-    if len(region_indices) == 0:
-        return points, region_indices  # 没有点受影响
-
-    # 计算点云整体尺寸，决定 magnitude 的大小
-    point_cloud_scale = points.max() - points.min()
-    magnitude = scale_factor * point_cloud_scale  # 使异常变形随点云大小变化
-
-    # 计算每个点的径向方向向量
-    directions = points[region_indices] - center
-    directions /= np.linalg.norm(directions, axis=1, keepdims=True) + 1e-6  # 归一化
-
-    # 选择向外 (outward=True) 还是向内 (outward=False)
-    if not outward:
-        directions = -directions
-
-    # 施加异常位移
-    points[region_indices] += directions * magnitude
-
-    return points, region_indices
-
-
-def add_shape_anomaly_with_normals(points, center, radius, scale_factor=0.02, outward=True):
-    # 将点云转换为Open3D对象
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
-
-    # 计算法线
-    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=30))
-    pcd.normalize_normals()
-
-    normals = np.asarray(pcd.normals)
-
-    # 计算所有点到中心点的距离
-    distances = np.linalg.norm(points - center, axis=1)
-
-    # 找到落入异常区域的点
-    region_indices = np.where(distances < radius)[0]
-
-    if len(region_indices) == 0:
-        return points, region_indices  # 没有点受到影响
-
-    # 根据点云整体尺寸动态调整变形幅度
-    point_cloud_scale = np.linalg.norm(points.max(axis=0) - points.min(axis=0))
-    deform_strength = scale_factor * point_cloud_scale
-
-    # 计算变形幅度（在 radius 内逐渐衰减）
-    region_distances = distances[region_indices]
-    deform_scale = deform_strength * np.exp(-(region_distances ** 2) / (2 * (radius / 2) ** 2))
-
-    # 调整变形方向
-    direction = normals[region_indices]
-    if not outward:
-        direction = -direction
-
-    # 计算最终位移
-    displacement = direction * deform_scale[:, np.newaxis]
-
-    # 施加变形
-    points[region_indices] += displacement
-
-    return points, region_indices
-
-
-def simulate_realistic_industrial_anomaly(points, max_num_region=8, noise_radius_range=(0.05, 0.10)):
-    anomaly_types = ['noise', 'structure', 'shape']
-
-    num_regions = np.random.randint(1, max_num_region + 1)
-    # 选择num_regions个中心点
-    selected_indices = np.random.choice(len(points), num_regions, replace=False)
-    selected_centers = points[selected_indices]
-
-    # 生成num_regions个半径
-    max_ = points.max()
-    min_ = points.min()
-    scale = max_ - min_
-    selected_radii = np.random.uniform(noise_radius_range[0] * scale, noise_radius_range[1] * scale, num_regions)
-
-    modified_indices = np.zeros(len(points), dtype=np.int32)
-    for idx, center in enumerate(selected_centers):
-        anomaly_type = np.random.choice(anomaly_types)
-        radii = selected_radii[idx]
-
-        if anomaly_type == 'noise':
-            points, region_indices = add_nonuniform_noise(points, center, radii)
-        elif anomaly_type == 'structure':
-            points, region_indices = add_shape_anomaly_with_normals(points, center, radii, outward=False)
-        else:
-            points, region_indices = add_shape_anomaly_with_normals(points, center, radii)
-        modified_indices[region_indices] = idx + 1
-
-    return points, modified_indices
-
+    restored_deformed = Pa_deformed * scale + centroid
+    mask = np.zeros(len(P))
+    mask[indices] = 1
+    return restored_deformed, mask
 
 def voxel_downsample_with_anomalies(points, modified_mask=None, voxel_size=0.5):
     # 计算每个点所属的voxel坐标
@@ -202,3 +102,19 @@ def voxel_downsample_with_anomalies(points, modified_mask=None, voxel_size=0.5):
     np.maximum.at(voxel_labels, inverse_indices, modified_mask.astype(int))
 
     return voxel_points, voxel_representative_indices, voxel_labels
+
+if __name__ == '__main__':
+    pcd = o3d.io.read_point_cloud("/Users/yruns/Downloads/Real3D-AD-PCD/airplane/train/287_template.pcd")
+    points = np.array(pcd.points)
+
+    points, mask = simulate_realistic_industrial_anomaly(points)
+
+    colors = np.zeros((len(points), 3))
+    colors[mask == 1] = to_rgb('red')
+    colors[mask == 0] = to_rgb('gray')
+
+    pcd.points = o3d.utility.Vector3dVector(points)
+    pcd.colors = o3d.utility.Vector3dVector(colors)
+    o3d.visualization.draw_geometries([pcd])
+
+
