@@ -74,6 +74,7 @@ class ClsEvaluator(CallbackBase):
         logits = np.concatenate(logits)
         logits = torch.sigmoid(torch.from_numpy(logits)).numpy()
         mask_pred = np.concatenate(mask_pred)
+        mask_pred = torch.sigmoid(torch.from_numpy(mask_pred)).numpy()
         mask_gt = np.concatenate(mask_gt)
         label_gt = np.concatenate(label_gt)
 
