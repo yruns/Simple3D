@@ -265,7 +265,7 @@ class SimpleNet(torch.nn.Module):
 
         if training:
             return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), center_idx, voxel_labels
-        return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), center_idx, voxel_indices
+        return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), voxel_indices, voxel_labels
 
     def forward(self, batch_data):
         """

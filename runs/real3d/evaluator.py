@@ -33,12 +33,12 @@ class ClsEvaluator(CallbackBase):
     def eval_step(self, pointcloud, gt_mask):
         model = self.trainer.model
 
-        features, _, voxel_indices = model.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
+        features, voxel_indices, voxel_labels = model.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
         if model.pre_proj > 0 and model.pre_projection is not None:
             features = model.pre_projection(features)
         scores = model.discriminator(features).squeeze(-1)
 
-        return scores.detach().cpu().numpy(), voxel_indices
+        return scores.detach().cpu().numpy(), voxel_indices, voxel_labels
 
     @torch.no_grad()
     def eval(self):
@@ -54,17 +54,17 @@ class ClsEvaluator(CallbackBase):
             batch_data = comm.move_tensor_to_device(batch_data)
 
             pointcloud, mask, label, path = batch_data
-            scores, voxel_indices = self.eval_step(pointcloud, mask)
+            scores, voxel_indices, voxel_labels = self.eval_step(pointcloud, mask)
 
             logits.append(scores)
             mask_pred.append(scores)
-            mask_gt.append(mask.squeeze(0).cpu().numpy()[voxel_indices])
+            mask_gt.append(voxel_labels)
             label_gt.append(label.cpu().numpy())
 
             save_dict["data"].append({
                 "pointcloud": pointcloud.squeeze(0).cpu().numpy()[voxel_indices],
                 "pred": scores,
-                "mask": mask.squeeze(0).cpu().numpy()[voxel_indices],
+                "mask": voxel_labels,
                 "mask_full": mask[0].cpu().numpy(),
                 "label": label.squeeze(0).cpu().numpy(),
                 "path": path[0]
