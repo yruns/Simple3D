@@ -11,15 +11,8 @@ The script is based on the code of PatchCore:
 """
 
 import logging
-import os
-from collections import OrderedDict
 
-import numpy as np
 import torch
-import tqdm
-from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve
-from torch import nn
-from torch.utils.tensorboard import SummaryWriter
 
 import patchcore
 from utils.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies
@@ -93,11 +86,11 @@ class Projection(torch.nn.Module):
     """
 
     def __init__(
-        self,
-        in_planes: int,
-        out_planes: int = None,
-        n_layers: int = 1,
-        layer_type: int = 0
+            self,
+            in_planes: int,
+            out_planes: int = None,
+            n_layers: int = 1,
+            layer_type: int = 0
     ):
         super().__init__()
 
@@ -243,7 +236,6 @@ class SimpleNet(torch.nn.Module):
 
         self.discriminator.train()
 
-
     def embed_pointmae(
             self,
             point_cloud: torch.Tensor,
@@ -251,7 +243,7 @@ class SimpleNet(torch.nn.Module):
     ):
         point_cloud = point_cloud.squeeze(0).cpu().numpy()
         training = gt_mask is None
-        if training:     # Training
+        if training:  # Training
             # point_cloud = augment_point_cloud(point_cloud)
             point_cloud, gt_mask = simulate_realistic_industrial_anomaly(
                 point_cloud, max_num_region=8, noise_radius_range=self.noise_radius_range)
@@ -301,4 +293,3 @@ class SimpleNet(torch.nn.Module):
         logits = torch.sigmoid(logits)
 
         return logits, voxel_labels
-

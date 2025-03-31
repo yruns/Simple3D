@@ -16,7 +16,6 @@ import torch.utils.data
 import torch.utils.data
 import torch.utils.data
 
-import patchcore
 from trim.callbacks.misc import *
 from trim.engine.launch import launch
 from trim.engine.trainer import TrainerBase
@@ -238,7 +237,8 @@ def main_worker(args):
     debug = args.eval or args.debug
     from runs.real3d.evaluator import ClsEvaluator
 
-    real_3d_classes = sorted(os.listdir(args.data))[:1]
+    # real_3d_classes = sorted(os.listdir(args.data))[:1]
+    real_3d_classes = ["candybar"]
     for cls_name in real_3d_classes:
         trainer = Trainer(cls_name, args, logger, debug=debug, callbacks=[
             CheckpointLoader(state_path=args.model_path, resume=not args.eval),

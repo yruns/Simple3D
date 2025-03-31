@@ -18,6 +18,7 @@ def normalize_cube(P):
     scale = np.max(np.linalg.norm(P_centered, axis=1))
     return P_centered / (scale + 1e-8), centroid, scale
 
+
 def viewpoint_selection(Pa, N_defect):
     """改进的视点采样，包含边界检查"""
     # 在单位球面生成视点（限制在点云包围盒内）
@@ -40,6 +41,7 @@ def viewpoint_selection(Pa, N_defect):
     indices = np.argpartition(distances, N_defect)[:N_defect]
     return indices, Pv
 
+
 def apply_deformation(Pa, indices, Pv, mode=None, S=0.3):
     """阶段三：多模式变形 (对应Deformation solution)"""
     direction = Pa[indices] - Pv
@@ -60,6 +62,7 @@ def apply_deformation(Pa, indices, Pv, mode=None, S=0.3):
     Pa_trans[indices] += S * (direction / (norms + 1e-8)) * T
     return Pa_trans
 
+
 def simulate_realistic_industrial_anomaly(P, defect_ratio=0.004, S=0.03):
     Pa_normalized, centroid, scale = normalize_cube(P)
 
@@ -72,6 +75,7 @@ def simulate_realistic_industrial_anomaly(P, defect_ratio=0.004, S=0.03):
     mask = np.zeros(len(P))
     mask[indices] = 1
     return restored_deformed, mask
+
 
 def voxel_downsample_with_anomalies(points, modified_mask=None, voxel_size=0.5):
     # 计算每个点所属的voxel坐标
@@ -103,6 +107,7 @@ def voxel_downsample_with_anomalies(points, modified_mask=None, voxel_size=0.5):
 
     return voxel_points, voxel_representative_indices, voxel_labels
 
+
 if __name__ == '__main__':
     pcd = o3d.io.read_point_cloud("/Users/yruns/Downloads/Real3D-AD-PCD/airplane/train/287_template.pcd")
     points = np.array(pcd.points)
@@ -116,5 +121,3 @@ if __name__ == '__main__':
     pcd.points = o3d.utility.Vector3dVector(points)
     pcd.colors = o3d.utility.Vector3dVector(colors)
     o3d.visualization.draw_geometries([pcd])
-
-

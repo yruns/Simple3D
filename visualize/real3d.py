@@ -5,10 +5,11 @@ Author: yruns
 
 Description: This file contains ...
 """
-from datasets.real3d import Real3DDataset
-
 import numpy as np
 import open3d as o3d
+
+from datasets.real3d import Real3DDataset
+
 
 def main():
     dataset = Real3DDataset("/Users/yruns/Downloads/Real3D-AD-PCD", "airplane", split="test")

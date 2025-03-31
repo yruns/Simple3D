@@ -9,6 +9,8 @@ Description: This file contains ...
 import numpy as np
 import open3d as o3d
 from matplotlib.colors import to_rgb
+import torch
+import torch_scatter
 
 
 def normalize_cube(P):
@@ -17,6 +19,7 @@ def normalize_cube(P):
     P_centered = P - centroid
     scale = np.max(np.linalg.norm(P_centered, axis=1))
     return P_centered / (scale + 1e-8), centroid, scale
+
 
 def viewpoint_selection(Pa, N_defect):
     """改进的视点采样，包含边界检查"""
@@ -40,6 +43,7 @@ def viewpoint_selection(Pa, N_defect):
     indices = np.argpartition(distances, N_defect)[:N_defect]
     return indices, Pv
 
+
 def apply_deformation(Pa, indices, Pv, mode=None, S=0.3):
     """阶段三：多模式变形 (对应Deformation solution)"""
     direction = Pa[indices] - Pv
@@ -60,6 +64,7 @@ def apply_deformation(Pa, indices, Pv, mode=None, S=0.3):
     Pa_trans[indices] += S * (direction / (norms + 1e-8)) * T
     return Pa_trans
 
+
 def simulate_realistic_industrial_anomaly(P, defect_ratio=0.004, S=0.03):
     Pa_normalized, centroid, scale = normalize_cube(P)
 
@@ -72,6 +77,7 @@ def simulate_realistic_industrial_anomaly(P, defect_ratio=0.004, S=0.03):
     mask = np.zeros(len(P))
     mask[indices] = 1
     return restored_deformed, mask
+
 
 def voxel_downsample_with_anomalies(points, modified_mask=None, voxel_size=0.5):
     # 计算每个点所属的voxel坐标
@@ -103,6 +109,35 @@ def voxel_downsample_with_anomalies(points, modified_mask=None, voxel_size=0.5):
 
     return voxel_points, voxel_representative_indices, voxel_labels
 
+
+def upsample(center_features, ori_idx, original_num_points):
+    """
+        center_features: [B, G, C] 下采样后的特征（如中心点特征）
+        ori_idx: [B, G, M] 邻域索引，表示每个中心点的邻域点在原始点云中的索引
+        original_num_points: 原始点云的点数 N
+        返回: [B, N, C] 上采样后的特征，每个原始点的特征
+    """
+    B, G, M = ori_idx.shape
+    C = center_features.size(2)
+
+    # 扩展中心点特征到每个邻域点 [B, G, M, C] -> [B*G*M, C]
+    expanded_features = center_features.unsqueeze(2).expand(-1, -1, M, -1).reshape(B * G * M, C)
+
+    # 获取全局索引并展平 [B*G*M]
+    indices = ori_idx.reshape(B * G * M)
+
+    # 初始化输出张量 [B*N, C]
+    output = torch.zeros(B * original_num_points, C, device=center_features.device)
+
+    # 使用scatter_mean聚合特征
+    output = torch_scatter.scatter_mean(expanded_features, indices, dim=0, out=output)
+
+    # 调整形状为 [B, N, C]
+    upsampled_features = output.view(B, original_num_points, C)
+
+    return upsampled_features
+
+
 if __name__ == '__main__':
     pcd = o3d.io.read_point_cloud("/Users/yruns/Downloads/Real3D-AD-PCD/airplane/train/287_template.pcd")
     points = np.array(pcd.points)
@@ -116,5 +151,3 @@ if __name__ == '__main__':
     pcd.points = o3d.utility.Vector3dVector(points)
     pcd.colors = o3d.utility.Vector3dVector(colors)
     o3d.visualization.draw_geometries([pcd])
-
-

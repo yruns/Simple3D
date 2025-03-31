@@ -1,6 +1,4 @@
-import open3d as o3d
 import trimesh
-
 
 
 def ply_to_obj(ply_file, obj_file=None, prettify_gradio=True):
@@ -14,7 +12,6 @@ def ply_to_obj(ply_file, obj_file=None, prettify_gradio=True):
     if mesh.is_empty:
         raise ValueError(f"Empty mesh: {ply_file}")
     mesh.export(obj_file)
-
 
     return obj_file
 

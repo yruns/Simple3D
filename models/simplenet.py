@@ -11,20 +11,12 @@ The script is based on the code of PatchCore:
 """
 
 import logging
-import os
-from collections import OrderedDict
 
-import numpy as np
 import torch
-import tqdm
-from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve
-from torch import nn
-from torch.utils.tensorboard import SummaryWriter
 
 import patchcore
-from utils.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies
-from feature_extractors.ransac_position import get_registration_np, get_registration_refine_np
-
+from feature_extractors.ransac_position import get_registration_refine_np
+from utils.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies, upsample
 
 LOGGER = logging.getLogger(__name__)
 
@@ -95,11 +87,11 @@ class Projection(torch.nn.Module):
     """
 
     def __init__(
-        self,
-        in_planes: int,
-        out_planes: int = None,
-        n_layers: int = 1,
-        layer_type: int = 0
+            self,
+            in_planes: int,
+            out_planes: int = None,
+            n_layers: int = 1,
+            layer_type: int = 0
     ):
         super().__init__()
 
@@ -234,7 +226,6 @@ class SimpleNet(torch.nn.Module):
 
         self.discriminator.train()
 
-
     def embed_pointmae(
             self,
             point_cloud: torch.Tensor,
@@ -242,14 +233,14 @@ class SimpleNet(torch.nn.Module):
     ):
         point_cloud = point_cloud.squeeze(0).cpu().numpy()
         training = gt_mask is None
-        if training:     # Training
+        if training:  # Training
             # point_cloud = augment_point_cloud(point_cloud)
+            # point_cloud = get_registration_refine_np(
+            #     point_cloud,
+            #     self.basic_template
+            # )
             point_cloud, gt_mask = simulate_realistic_industrial_anomaly(
                 point_cloud)
-            point_cloud = get_registration_refine_np(
-                point_cloud,
-                self.basic_template
-            )
 
         voxel_points, voxel_indices, voxel_labels = voxel_downsample_with_anomalies(
             point_cloud, gt_mask, voxel_size=self.voxel_size)
@@ -264,8 +255,8 @@ class SimpleNet(torch.nn.Module):
             )
 
         if training:
-            return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), center_idx, voxel_labels
-        return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), voxel_indices, voxel_labels
+            return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), ori_idx, gt_mask,
+        return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), ori_idx, gt_mask
 
     def forward(self, batch_data):
         """
@@ -278,13 +269,15 @@ class SimpleNet(torch.nn.Module):
         assert input_pointcloud.shape[0] == 1, "Batch size must be 1."
 
         # True features
-        features, _, voxel_labels = self.embed_pointmae(input_pointcloud)
+        features, ori_idx, gt_mask = self.embed_pointmae(input_pointcloud)
         if self.pre_proj > 0 and self.pre_projection is not None:
             features = self.pre_projection(features)
 
+        # upsample
+        features = upsample(features.unsqueeze(0), ori_idx, input_pointcloud.shape[1])
+
         # Discriminator forward
-        voxel_labels = torch.from_numpy(voxel_labels).float().cuda()
-        logits = self.discriminator(features).squeeze(-1)
+        gt_mask = torch.from_numpy(gt_mask).float().cuda()
+        logits = self.discriminator(features.squeeze(0)).squeeze(-1)
 
-        return logits, voxel_labels
-
+        return logits, gt_mask

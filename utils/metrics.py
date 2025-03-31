@@ -6,6 +6,7 @@ from sklearn import metrics
 
 from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve
 
+
 def to_numpy(tensor):
     if isinstance(tensor, torch.Tensor):
         return tensor.detach().cpu().numpy()
@@ -30,6 +31,7 @@ def focal_loss(inputs, targets, alpha=0.7, gamma=2, eps=1e-7):
     loss = -alpha_t * (1 - pt) ** gamma * torch.clamp(pt, eps, 1 - eps).log()
 
     return loss.mean()  # 返回batch平均损失
+
 
 def compute_metrics(logits, mask_pred, mask_gt, label_gt):
     # to numpy

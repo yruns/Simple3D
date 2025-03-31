@@ -1,6 +1,7 @@
 import sys
 
 from loguru import logger
+
 from trim.utils.dist import is_main_process
 
 

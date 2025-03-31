@@ -5,10 +5,10 @@ Author: yruns
 
 Description: This file contains ...
 """
-from visualize.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies
-
 import numpy as np
 import open3d as o3d
+
+from visualize.point_ops import simulate_realistic_industrial_anomaly
 
 
 def norm_pcd(point_cloud):
@@ -16,6 +16,7 @@ def norm_pcd(point_cloud):
     # print(center.shape)
     new_points = point_cloud - np.expand_dims(center, axis=0)
     return new_points
+
 
 def main():
     pcd = o3d.io.read_point_cloud("/Users/yruns/Downloads/Real3D-AD-PCD/airplane/test/149_good.pcd")

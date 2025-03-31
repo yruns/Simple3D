@@ -1,14 +1,12 @@
 import os
 import pickle
-import uuid
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from trim.callbacks.default import CallbackBase
-from trim.utils import dist, comm
+from trim.utils import comm
 from utils.metrics import compute_metrics
 
 
@@ -99,7 +97,8 @@ class ClsEvaluator(CallbackBase):
 
         os.makedirs(os.path.join(self.trainer.output_dir, "eval"), exist_ok=True)
         with open(os.path.join(
-                self.trainer.output_dir, "eval", f"{self.trainer.epoch}_{'best' if p_auroc >= self.best_acc else ''}.pkl"
+                self.trainer.output_dir, "eval",
+                f"{self.trainer.epoch}_{'best' if p_auroc >= self.best_acc else ''}.pkl"
         ), "wb") as f:
             pickle.dump(save_dict, f)
             self.trainer.logger.info("Save evaluation results to %s" % f.name)
@@ -169,7 +168,6 @@ class Visualizer(CallbackBase):
         label_gt = np.concatenate(label_gt)
 
         p_ap, p_auroc, p_true, p_fake, f1 = compute_metrics(logits, mask_pred, mask_gt, label_gt)
-
 
         self.trainer.wandb.log({
             "val_pixel_ap": p_ap,
