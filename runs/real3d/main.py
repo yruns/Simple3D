@@ -62,7 +62,7 @@ class Trainer(TrainerBase):
             voxel_size=self.args.voxel_size,
             noise_radius_range=(0.05, 0.10),
 
-            embedding_size=None,
+            embedding_size=128,
             meta_epochs=40,  # 40
             aed_meta_epochs=1,
             gan_epochs=4,  # 4
@@ -228,7 +228,7 @@ def main_worker(args):
     now = time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
     args.output_dir = f"output/Simple3D-{now}"
-    args.log_project = "Simple3D"
+    args.log_project = "Simple3DUpSampled"
 
     args.log_tag = f"{args.manual_seed}-{now}-vs{args.voxel_size}-noaug"
     comm.seed_everything(args.manual_seed)
@@ -237,8 +237,8 @@ def main_worker(args):
     debug = args.eval or args.debug
     from runs.real3d.evaluator import ClsEvaluator
 
-    # real_3d_classes = sorted(os.listdir(args.data))[:1]
-    real_3d_classes = ["candybar"]
+    real_3d_classes = sorted(os.listdir(args.data))[:1]
+    # real_3d_classes = ["candybar"]
     for cls_name in real_3d_classes:
         trainer = Trainer(cls_name, args, logger, debug=debug, callbacks=[
             CheckpointLoader(state_path=args.model_path, resume=not args.eval),
@@ -263,7 +263,7 @@ if __name__ == "__main__":
     parser.add_argument('--faiss_num_workers', default=8, type=int)
     parser.add_argument('--anomaly_scorer_num_nn', default=1, type=int)
     parser.add_argument('--eval_interval', type=int, default=4)
-    parser.add_argument('--voxel_size', type=float, default=1.0)
+    parser.add_argument('--voxel_size', type=float, default=0.5)
 
     parser.add_argument('--eval', action="store_true", help='is evaluation')
     parser.add_argument('--model_path', type=str, default=None, help='model path')

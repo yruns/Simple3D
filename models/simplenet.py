@@ -194,7 +194,7 @@ class SimpleNet(torch.nn.Module):
         if self.pre_proj > 0:
             self.pre_projection = Projection(
                 self.target_embed_dimension,
-                self.target_embed_dimension,
+                self.embedding_size,
                 pre_proj,
                 proj_layer_type
             ).to(self.device)
@@ -208,7 +208,7 @@ class SimpleNet(torch.nn.Module):
         self.gan_epochs = gan_epochs
 
         self.discriminator = Discriminator(
-            self.target_embed_dimension,
+            self.embedding_size,
             n_layers=dsc_layers,
             hidden=dsc_hidden
         ).to(self.device)

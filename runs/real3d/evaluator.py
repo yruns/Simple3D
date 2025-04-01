@@ -8,6 +8,7 @@ from tqdm import tqdm
 from trim.callbacks.default import CallbackBase
 from trim.utils import comm
 from utils.metrics import compute_metrics
+from utils.point_ops import upsample
 
 
 class ClsEvaluator(CallbackBase):
@@ -31,12 +32,15 @@ class ClsEvaluator(CallbackBase):
     def eval_step(self, pointcloud, gt_mask):
         model = self.trainer.model
 
-        features, voxel_indices, voxel_labels = model.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
+        num_points = pointcloud.shape[1]
+        features, ori_idx, gt_mask = model.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
         if model.pre_proj > 0 and model.pre_projection is not None:
             features = model.pre_projection(features)
-        scores = model.discriminator(features).squeeze(-1)
 
-        return scores.detach().cpu().numpy(), voxel_indices, voxel_labels
+        features = upsample(features.unsqueeze(0), ori_idx, num_points)
+        scores = model.discriminator(features.squeeze(0)).squeeze(-1)
+
+        return scores.detach().cpu().numpy()
 
     @torch.no_grad()
     def eval(self):
@@ -52,18 +56,18 @@ class ClsEvaluator(CallbackBase):
             batch_data = comm.move_tensor_to_device(batch_data)
 
             pointcloud, mask, label, path = batch_data
-            scores, voxel_indices, voxel_labels = self.eval_step(pointcloud, mask)
+            scores = self.eval_step(pointcloud, mask)
 
             logits.append(scores)
             mask_pred.append(scores)
-            mask_gt.append(voxel_labels)
+            mask_gt.append(mask[0].cpu().numpy())
             label_gt.append(label.cpu().numpy())
 
             save_dict["data"].append({
-                "pointcloud": pointcloud.squeeze(0).cpu().numpy()[voxel_indices],
+                # "pointcloud": pointcloud.squeeze(0).cpu().numpy()[voxel_indices],
                 "pred": scores,
-                "mask": voxel_labels,
-                "mask_full": mask[0].cpu().numpy(),
+                # "mask": voxel_labels,
+                "mask": mask[0].cpu().numpy(),
                 "label": label.squeeze(0).cpu().numpy(),
                 "path": path[0]
             })
