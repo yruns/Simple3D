@@ -72,7 +72,7 @@ class Trainer(TrainerBase):
             dsc_lr=0.0001,
             train_backbone=False,
             cos_lr=True,
-            lr=1e-3,
+            lr=1e-4,
             pre_proj=1,  # 1
             proj_layer_type=0,
         )
@@ -262,7 +262,7 @@ if __name__ == "__main__":
     parser.add_argument('--faiss_on_gpu', default=True, type=bool)
     parser.add_argument('--faiss_num_workers', default=8, type=int)
     parser.add_argument('--anomaly_scorer_num_nn', default=1, type=int)
-    parser.add_argument('--eval_interval', type=int, default=4)
+    parser.add_argument('--eval_interval', type=int, default=1)
     parser.add_argument('--voxel_size', type=float, default=0.5)
 
     parser.add_argument('--eval', action="store_true", help='is evaluation')
