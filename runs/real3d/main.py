@@ -62,17 +62,17 @@ class Trainer(TrainerBase):
             voxel_size=self.args.voxel_size,
             noise_radius_range=(0.05, 0.10),
 
-            embedding_size=128,
+            embedding_size=256,
             meta_epochs=40,  # 40
             aed_meta_epochs=1,
             gan_epochs=4,  # 4
             dsc_layers=2,  # 2
             dsc_hidden=None,  # 1024
             dsc_margin=0.2,  # 0.5
-            dsc_lr=0.0001,
+            dsc_lr=0.001,
             train_backbone=False,
             cos_lr=True,
-            lr=1e-4,
+            lr=1e-3,
             pre_proj=1,  # 1
             proj_layer_type=0,
         )
@@ -114,7 +114,13 @@ class Trainer(TrainerBase):
             'params': self.model.discriminator.parameters(),
             'lr': self.model.dsc_lr,
             'weight_decay': 1e-5
-        }]
+            },
+            {
+                'params': self.model.pos_embed.parameters(),
+                'lr': self.model.lr,
+                'weight_decay': 1e-5
+            }
+        ]
 
         if self.model.pre_proj > 0 and self.model.pre_projection is not None:
             param_groups.append({
@@ -192,7 +198,7 @@ class Trainer(TrainerBase):
         batch_data = comm.move_tensor_to_device(batch_data)
         logits, voxel_labels = self.model(batch_data)
 
-        loss = metrics.focal_loss(logits, voxel_labels)
+        loss = metrics.focal_loss(logits, voxel_labels, alpha=0.8, gamma=3, eps=1e-7)
         logits = torch.sigmoid(logits)
         p_ap, p_auroc, p_true, p_fake, f1, best_threshold = metrics.compute_metrics(None, logits, voxel_labels, None)
 

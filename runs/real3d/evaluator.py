@@ -38,6 +38,8 @@ class ClsEvaluator(CallbackBase):
             features = model.pre_projection(features)
 
         features = upsample(features.unsqueeze(0), ori_idx, num_points)
+        xyz = model.pos_embed(pointcloud)
+        features = torch.cat([features, xyz], dim=-1)
         scores = model.discriminator(features.squeeze(0)).squeeze(-1)
 
         return scores.detach().cpu().numpy()

@@ -13,7 +13,7 @@ def to_numpy(tensor):
     return tensor
 
 
-def focal_loss(inputs, targets, alpha=0.7, gamma=2, eps=1e-7):
+def focal_loss(inputs, targets, alpha=0.8, gamma=3, eps=1e-7):
     """
         计算后的Focal Loss标量值
     """

@@ -13,7 +13,7 @@ The script is based on the code of PatchCore:
 import logging
 
 import torch
-
+from torch import nn
 import patchcore
 from feature_extractors.ransac_position import get_registration_refine_np
 from utils.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies, upsample
@@ -149,7 +149,7 @@ class SimpleNet(torch.nn.Module):
         self.layers_to_extract_from = layers_to_extract_from
         self.device = device
 
-        self.forward_modules = torch.nn.ModuleDict({})
+        # self.forward_modules = torch.nn.ModuleDict({})
         self.voxel_size = voxel_size
 
         self.target_embed_dimension = target_embed_dimension
@@ -157,12 +157,12 @@ class SimpleNet(torch.nn.Module):
             target_dim=target_embed_dimension
         )
         preadapt_aggregator.to(self.device)
-        self.forward_modules["preadapt_aggregator"] = preadapt_aggregator
+        # self.forward_modules["preadapt_aggregator"] = preadapt_aggregator
 
-        self.anomaly_scorer = patchcore.common.NearestNeighbourScorer(
-            n_nearest_neighbours=anomaly_score_num_nn,
-            nn_method=nn_method
-        )
+        # self.anomaly_scorer = patchcore.common.NearestNeighbourScorer(
+        #     n_nearest_neighbours=anomaly_score_num_nn,
+        #     nn_method=nn_method
+        # )
         self.noise_radius_range = noise_radius_range
 
         self.dataloader_count = 0
@@ -207,8 +207,14 @@ class SimpleNet(torch.nn.Module):
         self.dsc_lr = dsc_lr
         self.gan_epochs = gan_epochs
 
+        self.pos_embed = nn.Sequential(
+            nn.Linear(3, 128),
+            nn.GELU(),
+            nn.Linear(128, 128)
+        ).to(self.device)
+
         self.discriminator = Discriminator(
-            self.embedding_size,
+            self.embedding_size + 128,
             n_layers=dsc_layers,
             hidden=dsc_hidden
         ).to(self.device)
@@ -220,7 +226,7 @@ class SimpleNet(torch.nn.Module):
         self.tau = 1
         self.logger = None
 
-        self.forward_modules.eval()
+        # self.forward_modules.eval()
         if self.pre_proj > 0 and self.pre_projection is not None:
             self.pre_projection.train()
 
@@ -275,6 +281,8 @@ class SimpleNet(torch.nn.Module):
 
         # upsample
         features = upsample(features.unsqueeze(0), ori_idx, input_pointcloud.shape[1])
+        xyz = self.pos_embed(input_pointcloud)
+        features = torch.cat([features, xyz], dim=-1)
 
         # Discriminator forward
         gt_mask = torch.from_numpy(gt_mask).float().cuda()
