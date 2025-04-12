@@ -255,6 +255,8 @@ def main_worker(args):
 
     real_3d_classes = sorted(os.listdir(args.data))[:1]
     # real_3d_classes = ["candybar"]
+    auroc_list = {}
+
     for cls_name in real_3d_classes:
         trainer = Trainer(cls_name, args, logger, debug=debug, callbacks=[
             CheckpointLoader(state_path=args.model_path, resume=not args.eval),
@@ -269,6 +271,14 @@ def main_worker(args):
             trainer.fit()
         else:
             trainer.test()
+
+        pauroc = trainer.best_metric_value
+        auroc_list[cls_name] = pauroc
+
+    # Statistics
+    for cls_name, pauroc in auroc_list.items():
+        print(f"Class: {cls_name}, AUROC: {pauroc:.4f}")
+    print("Mean AUROC: ", np.mean(list(auroc_list.values())))
 
 
 if __name__ == "__main__":
