@@ -144,6 +144,10 @@ class SimpleNet(torch.nn.Module):
             lr=1e-3,
             pre_proj=1,  # 1
             proj_layer_type=0,
+
+            defect_ratio=0.004,
+            S=0.03,
+            num_defects=6,
     ) -> None:
         super().__init__()
         self.layers_to_extract_from = layers_to_extract_from
@@ -236,13 +240,13 @@ class SimpleNet(torch.nn.Module):
         point_cloud = point_cloud.squeeze(0).cpu().numpy()
         training = gt_mask is None
         if training:  # Training
-            point_cloud = augment_point_cloud(point_cloud)
+            # point_cloud = augment_point_cloud(point_cloud)    # switch to dataset
             # point_cloud = get_registration_refine_np(
             #     point_cloud,
             #     self.basic_template
             # )
             point_cloud, gt_mask = simulate_realistic_industrial_anomaly(
-                point_cloud)
+                point_cloud, defect_ratio=0.004, S=0.03, num_defects=6)
 
         voxel_points, voxel_indices, voxel_labels = voxel_downsample_with_anomalies(
             point_cloud, gt_mask, voxel_size=self.voxel_size)

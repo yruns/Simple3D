@@ -75,6 +75,10 @@ class Trainer(TrainerBase):
             lr=1e-3,
             pre_proj=1,  # 1
             proj_layer_type=0,
+
+            defect_ratio=self.args.defect_ratio,
+            S=self.args.S,
+            num_defects=self.args.num_defects,
         )
         self.max_epoch = self.model.meta_epochs * self.model.gan_epochs + 1
 
@@ -91,7 +95,8 @@ class Trainer(TrainerBase):
         assert not dist.is_distritubed(), "Not support distributed training yet."
         from datasets.real3d import Real3DDataset
         self.train_loader = torch.utils.data.DataLoader(
-            Real3DDataset(dataset_dir=self.args.data, split="train", norm=True, cls_name=self.cls_name),
+            Real3DDataset(dataset_dir=self.args.data, split="train",
+                          norm=True, cls_name=self.cls_name, aug=self.args.aug_pointcloud),
             batch_size=self.args.batch_size, shuffle=True, num_workers=self.args.workers, pin_memory=True,
             drop_last=False
         )
@@ -269,7 +274,11 @@ if __name__ == "__main__":
     parser.add_argument('--faiss_num_workers', default=8, type=int)
     parser.add_argument('--anomaly_scorer_num_nn', default=1, type=int)
     parser.add_argument('--eval_interval', type=int, default=1)
-    parser.add_argument('--voxel_size', type=float, default=0.5)
+    parser.add_argument('--voxel_size', type=float, default=0.6)
+    parser.add_argument('--aug_pointcloud', type=bool, default=True)
+    parser.add_argument('--defect_ratio', type=float, default=0.04)
+    parser.add_argument('--S', type=float, default=0.03)
+    parser.add_argument('--num_defects', type=int, default=8)
 
     parser.add_argument('--eval', action="store_true", help='is evaluation')
     parser.add_argument('--model_path', type=str, default=None, help='model path')

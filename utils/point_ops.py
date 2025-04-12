@@ -23,7 +23,7 @@ def augment_point_cloud(point_cloud):
     """
     # 各向异性缩放（每个轴独立缩放）
     scale_factor = np.random.uniform(low=0.8, high=1.2, size=3)
-    scaled_pc = point_cloud * scale_factor
+    point_cloud = point_cloud * scale_factor
 
     # 生成随机旋转轴和角度
     axis = np.random.normal(size=3)
@@ -34,8 +34,8 @@ def augment_point_cloud(point_cloud):
     rot_mat = rotation_matrix(axis, angle)
 
     # 绕点云中心旋转
-    center = np.mean(scaled_pc, axis=0)
-    translated = scaled_pc - center
+    center = np.mean(point_cloud, axis=0)
+    translated = point_cloud - center
     rotated = translated @ rot_mat.T  # 矩阵乘法应用旋转
     rotated += center  # 平移回原位置
 

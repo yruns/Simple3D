@@ -13,6 +13,7 @@ import pathlib
 import numpy as np
 import open3d as o3d
 from torch.utils.data import Dataset
+from utils.point_ops import augment_point_cloud
 
 REAL3D_CLASS_NAME = [
     'airplane', 'car', 'candybar', 'chicken',
@@ -28,11 +29,13 @@ class Real3DDataset(Dataset):
             cls_name,
             split='train',
             norm=True,
+            aug=True
     ):
         self.dataset_dir = dataset_dir
         self.cls_name = cls_name
         self.split = split
         self.norm = norm
+        self.aug = aug
 
         # Build sample list
         if self.split == 'train':
@@ -88,6 +91,10 @@ class Real3DDataset(Dataset):
         # Normalize point cloud
         if self.norm:
             pointcloud = self.norm_pcd(pointcloud)
+
+        if self.aug and self.split == 'train':
+            # Apply augmentation (if any)
+            pointcloud = augment_point_cloud(pointcloud)
 
         return pointcloud.astype(np.float32), mask, label, sample_path
 
