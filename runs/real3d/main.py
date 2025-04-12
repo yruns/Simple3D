@@ -125,7 +125,7 @@ class Trainer(TrainerBase):
         if self.model.pre_proj > 0 and self.model.pre_projection is not None:
             param_groups.append({
                 'params': self.model.pre_projection.parameters(),
-                'lr': self.model.lr * 0.1,
+                'lr': self.model.lr,
                 'weight_decay': 1e-5
             })
 

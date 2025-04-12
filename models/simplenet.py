@@ -16,7 +16,7 @@ import torch
 from torch import nn
 import patchcore
 from feature_extractors.ransac_position import get_registration_refine_np
-from utils.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies, upsample
+from utils.point_ops import simulate_realistic_industrial_anomaly, voxel_downsample_with_anomalies, upsample, augment_point_cloud
 
 LOGGER = logging.getLogger(__name__)
 
@@ -198,10 +198,6 @@ class SimpleNet(torch.nn.Module):
                 pre_proj,
                 proj_layer_type
             ).to(self.device)
-            self.proj_opt = torch.optim.AdamW(
-                self.pre_projection.parameters(),
-                self.lr * 0.1
-            )
 
         # Discriminator configuration.
         self.dsc_lr = dsc_lr
@@ -240,7 +236,7 @@ class SimpleNet(torch.nn.Module):
         point_cloud = point_cloud.squeeze(0).cpu().numpy()
         training = gt_mask is None
         if training:  # Training
-            # point_cloud = augment_point_cloud(point_cloud)
+            point_cloud = augment_point_cloud(point_cloud)
             # point_cloud = get_registration_refine_np(
             #     point_cloud,
             #     self.basic_template

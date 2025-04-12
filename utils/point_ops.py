@@ -13,6 +13,58 @@ import torch
 import torch_scatter
 
 
+def augment_point_cloud(point_cloud):
+    """
+    点云数据增强函数，包含缩放和绕任意轴旋转
+    输入:
+        point_cloud: numpy数组，形状为(N, 3)
+    输出:
+        增强后的点云: numpy数组，形状为(N, 3)
+    """
+    # 各向异性缩放（每个轴独立缩放）
+    scale_factor = np.random.uniform(low=0.8, high=1.2, size=3)
+    scaled_pc = point_cloud * scale_factor
+
+    # 生成随机旋转轴和角度
+    axis = np.random.normal(size=3)
+    axis /= np.linalg.norm(axis)  # 归一化为单位向量
+    angle = np.random.uniform(0, 2 * np.pi)
+
+    # 计算旋转矩阵（使用罗德里格斯公式）
+    rot_mat = rotation_matrix(axis, angle)
+
+    # 绕点云中心旋转
+    center = np.mean(scaled_pc, axis=0)
+    translated = scaled_pc - center
+    rotated = translated @ rot_mat.T  # 矩阵乘法应用旋转
+    rotated += center  # 平移回原位置
+
+    return rotated
+
+
+def rotation_matrix(axis, angle):
+    """
+    使用罗德里格斯公式计算旋转矩阵
+    参数:
+        axis: 单位向量表示的旋转轴
+        angle: 旋转角度（弧度）
+    返回:
+        3x3旋转矩阵
+    """
+    axis = axis / np.linalg.norm(axis)
+    a = np.cos(angle)
+    b = np.sin(angle)
+    c = 1 - a
+
+    x, y, z = axis
+    return np.array([
+        [a + c * x * x, c * x * y - b * z, c * x * z + b * y],
+        [c * x * y + b * z, a + c * y * y, c * y * z - b * x],
+        [c * x * z - b * y, c * y * z + b * x, a + c * z * z]
+    ])
+
+
+
 def normalize_cube(P):
     """阶段一：立方体归一化 (对应Localized cube)"""
     centroid = np.mean(P, axis=0)
