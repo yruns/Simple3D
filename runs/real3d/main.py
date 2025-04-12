@@ -124,13 +124,18 @@ class Trainer(TrainerBase):
                 'params': self.model.pos_embed.parameters(),
                 'lr': self.model.lr,
                 'weight_decay': 1e-5
+            },
+            {
+                'params': self.model.block_mlp.parameters(),
+                'lr': self.model.lr,
+                'weight_decay': 1e-5
             }
         ]
 
         if self.model.pre_proj > 0 and self.model.pre_projection is not None:
             param_groups.append({
                 'params': self.model.pre_projection.parameters(),
-                'lr': self.model.lr,
+                'lr': self.model.lr * 0.1,
                 'weight_decay': 1e-5
             })
 
