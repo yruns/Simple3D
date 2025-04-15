@@ -184,7 +184,7 @@ def copy_codebase(output_dir, exclude_dirs=None):
     output_dir = os.path.join(output_dir, "codebase")
 
     if exclude_dirs is None:
-        exclude_dirs = ["__pycache__", "wandb", "data", "output", "checkpoints", "visualize", "pretrained"]
+        exclude_dirs = ["__pycache__", "wandb", "data", "output", "checkpoints", "visualize", "pretrained", "goodcase"]
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)

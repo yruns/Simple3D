@@ -80,7 +80,7 @@ class Trainer(TrainerBase):
             S=self.args.S,
             num_defects=self.args.num_defects,
         )
-        self.max_epoch = self.model.meta_epochs * self.model.gan_epochs + 1
+        self.max_epoch = self.args.max_epoch
 
         num_parameters = comm.count_parameters(self.model, trainable=True)
         self.wandb.update({"model_size": f"{num_parameters / 1e6}M"})
@@ -124,11 +124,6 @@ class Trainer(TrainerBase):
                 'params': self.model.pos_embed.parameters(),
                 'lr': self.model.lr,
                 'weight_decay': 1e-5
-            },
-            {
-                'params': self.model.block_mlp.parameters(),
-                'lr': self.model.lr,
-                'weight_decay': 1e-5
             }
         ]
 
@@ -157,7 +152,7 @@ class Trainer(TrainerBase):
             save_code=False,
             resume=False,
             file_prefix=os.path.join(self.output_dir, "codebase"),
-            save_files=[__file__, *glob("models/*.py")],
+            save_files=[__file__, *glob("models/*.py"), *glob("runs/real3d/evaluator.py")],
             debug=self.debug or self.args.no_wandb
         )
         self.wandb.update({"output_dir": self.output_dir})
@@ -244,20 +239,21 @@ def main_worker(args):
     now = time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
     args.output_dir = f"output/Simple3D-{now}"
-    args.log_project = "Simple3DUpSampled"
+    args.log_project = "Simple3DUpSampledV2"
 
-    args.log_tag = f"{args.manual_seed}-{now}-vs{args.voxel_size}-noaug"
+
     comm.seed_everything(args.manual_seed)
     comm.copy_codebase(args.output_dir)
 
     debug = args.eval or args.debug
     from runs.real3d.evaluator import ClsEvaluator
 
-    real_3d_classes = sorted(os.listdir(args.data))[:1]
+    real_3d_classes = sorted(os.listdir(args.data))
     # real_3d_classes = ["candybar"]
     auroc_list = {}
 
     for cls_name in real_3d_classes:
+        args.log_tag = f"vs{args.voxel_size}-{cls_name}"
         trainer = Trainer(cls_name, args, logger, debug=debug, callbacks=[
             CheckpointLoader(state_path=args.model_path, resume=not args.eval),
             IterationTimer(warmup_iter=2),
@@ -278,7 +274,10 @@ def main_worker(args):
     # Statistics
     for cls_name, pauroc in auroc_list.items():
         print(f"Class: {cls_name}, AUROC: {pauroc:.4f}")
+        logger.info(f"Class: {cls_name}, AUROC: {pauroc:.4f}")
     print("Mean AUROC: ", np.mean(list(auroc_list.values())))
+    logger.info("Mean AUROC: %f" % np.mean(list(auroc_list.values())))
+    # trainer.wandb.update({"mean_auroc": np.mean(list(auroc_list.values()))})
 
 
 if __name__ == "__main__":
@@ -289,11 +288,12 @@ if __name__ == "__main__":
     parser.add_argument('--faiss_num_workers', default=8, type=int)
     parser.add_argument('--anomaly_scorer_num_nn', default=1, type=int)
     parser.add_argument('--eval_interval', type=int, default=1)
-    parser.add_argument('--voxel_size', type=float, default=0.6)
-    parser.add_argument('--aug_pointcloud', type=bool, default=True)
-    parser.add_argument('--defect_ratio', type=float, default=0.04)
+    parser.add_argument('--voxel_size', type=float, default=0.5)
+    parser.add_argument('--aug_pointcloud', type=bool, default=False)
+    parser.add_argument('--defect_ratio', type=float, default=0.004)
     parser.add_argument('--S', type=float, default=0.03)
-    parser.add_argument('--num_defects', type=int, default=8)
+    parser.add_argument('--num_defects', type=int, default=6)
+    parser.add_argument('--max_epoch', type=int, default=30)
 
     parser.add_argument('--eval', action="store_true", help='is evaluation')
     parser.add_argument('--model_path', type=str, default=None, help='model path')

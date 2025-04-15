@@ -32,17 +32,12 @@ class ClsEvaluator(CallbackBase):
     def eval_step(self, pointcloud, gt_mask):
         model = self.trainer.model
 
-        features, ori_idx, gt_mask, center_idx = model.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
+        num_points = pointcloud.shape[1]
+        features, ori_idx, gt_mask = model.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
         if model.pre_proj > 0 and model.pre_projection is not None:
             features = model.pre_projection(features)
 
-        features = model.upsample(
-            features.unsqueeze(0),
-            ori_idx,
-            pointcloud.shape[1],
-            pointcloud,
-            center_idx.to(torch.int64)
-        )
+        features = upsample(features.unsqueeze(0), ori_idx, num_points)
         xyz = model.pos_embed(pointcloud)
         features = torch.cat([features, xyz], dim=-1)
         scores = model.discriminator(features.squeeze(0)).squeeze(-1)

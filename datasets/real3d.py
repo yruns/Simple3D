@@ -92,6 +92,12 @@ class Real3DDataset(Dataset):
         if self.norm:
             pointcloud = self.norm_pcd(pointcloud)
 
+        # Sampled point cloud
+        if pointcloud.shape[0] > 600000:
+            sampled_indices = np.random.choice(pointcloud.shape[0], 600000, replace=False)
+            pointcloud = pointcloud[sampled_indices]
+            mask = mask[sampled_indices]
+
         if self.aug and self.split == 'train':
             # Apply augmentation (if any)
             pointcloud = augment_point_cloud(pointcloud)
