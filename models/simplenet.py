@@ -213,11 +213,17 @@ class SimpleNet(torch.nn.Module):
         self.pos_embed = nn.Sequential(
             nn.Linear(3, 128),
             nn.GELU(),
-            nn.Linear(128, 128)
+            nn.Linear(128, self.embedding_size)
         ).to(self.device)
 
         self.discriminator = Discriminator(
-            self.embedding_size + 128,
+            self.embedding_size,
+            n_layers=dsc_layers,
+            hidden=dsc_hidden
+        ).to(self.device)
+
+        self.corse_discriminator = Discriminator(
+            self.embedding_size,
             n_layers=dsc_layers,
             hidden=dsc_hidden
         ).to(self.device)
@@ -264,7 +270,8 @@ class SimpleNet(torch.nn.Module):
             )
 
         if training:
-            return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), ori_idx, gt_mask,
+            return (pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), ori_idx, gt_mask
+                    , torch.from_numpy(voxel_indices).cuda(), torch.from_numpy(voxel_labels).cuda())
         return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), ori_idx, gt_mask
 
     def forward(self, batch_data):
@@ -278,17 +285,89 @@ class SimpleNet(torch.nn.Module):
         assert input_pointcloud.shape[0] == 1, "Batch size must be 1."
 
         # True features
-        features, ori_idx, gt_mask = self.embed_pointmae(input_pointcloud)
+        features, ori_idx, gt_mask, voxel_indices, voxel_labels = self.embed_pointmae(input_pointcloud)
         if self.pre_proj > 0 and self.pre_projection is not None:
             features = self.pre_projection(features)
+
+        corse_logits = self.corse_discriminator(features.squeeze(0)).squeeze(-1)
 
         # upsample
         features = upsample(features.unsqueeze(0), ori_idx, input_pointcloud.shape[1])
         xyz = self.pos_embed(input_pointcloud)
-        features = torch.cat([features, xyz], dim=-1)
+        # features = torch.cat([features, xyz], dim=-1)
+        features = features + xyz
 
         # Discriminator forward
         gt_mask = torch.from_numpy(gt_mask).float().cuda()
         logits = self.discriminator(features.squeeze(0)).squeeze(-1)
 
-        return logits, gt_mask
+        return logits, gt_mask, corse_logits, voxel_labels
+
+    def upsample(self, center_features, ori_idx, original_num_points, input_coords, center_idx):
+        """
+        改进后的上采样方法，利用邻域分块和局部几何特征。
+
+        Args:
+            center_features: [B, G, C] 中心点特征
+            ori_idx: [B, G, M] 邻域点索引
+            original_num_points: 原始点云点数N
+            input_coords: [B, N, 3] 原始点云坐标
+            center_idx: [B, G] 中心点在原始点云中的索引
+        Returns:
+            [B, N, C+8] 上采样后的特征（包含分块几何特征）
+        """
+        import torch_scatter
+        B, G, M = ori_idx.shape
+        C = center_features.size(2)
+        device = center_features.device
+
+        # 1. 获取中心点坐标 [B, G, 3]
+        center_coords = torch.gather(input_coords, 1, center_idx.unsqueeze(-1).expand(-1, -1, 3))
+
+        # 2. 获取邻域点坐标 [B, G, M, 3]
+        neighbor_coords = torch.gather(
+            input_coords.unsqueeze(1).expand(-1, G, -1, -1),
+            2,
+            ori_idx.unsqueeze(-1).expand(-1, -1, -1, 3)
+        )
+
+        # 3. 计算相对坐标 [B, G, M, 3]
+        relative_xyz = neighbor_coords - center_coords.unsqueeze(2)
+
+        # 4. 计算分块索引 (0-7)
+        x_sign = (relative_xyz[..., 0] >= 0).long()
+        y_sign = (relative_xyz[..., 1] >= 0).long()
+        z_sign = (relative_xyz[..., 2] >= 0).long()
+        block_idx = x_sign * 4 + y_sign * 2 + z_sign  # [B, G, M]
+
+        # 5. 生成全局分块标识符
+        batch_indices = torch.arange(B, device=device).view(B, 1, 1).expand(-1, G, M)
+        center_indices = torch.arange(G, device=device).view(1, G, 1).expand(B, -1, M)
+        global_block = batch_indices * G * 8 + center_indices * 8 + block_idx
+
+        # 6. 展平处理
+        flat_relative_xyz = relative_xyz.view(-1, 3)  # [B*G*M, 3]
+        flat_global_block = global_block.view(-1)  # [B*G*M]
+
+        # 7. 计算分块均值
+        block_mean = torch_scatter.scatter_mean(flat_relative_xyz, flat_global_block, dim=0)
+
+        # 8. 归一化坐标
+        normalized_xyz = flat_relative_xyz - block_mean[flat_global_block]
+
+        # 9. 通过MLP提取特征
+        point_features = self.block_mlp(normalized_xyz)  # [B*G*M, 8]
+
+        # 10. 分块最大池化
+        block_features, _ = torch_scatter.scatter_max(point_features, flat_global_block, dim=0)
+
+        # 11. 组合特征
+        expanded_center = center_features.unsqueeze(2).expand(-1, -1, M, -1).reshape(-1, C)
+        combined_features = torch.cat([expanded_center, block_features[flat_global_block]], dim=1)
+
+        # 12. 聚合到原始点
+        original_indices = ori_idx.view(-1)
+        output = torch.zeros(B * original_num_points, C + 8, device=device)
+        output = torch_scatter.scatter_mean(combined_features, original_indices, dim=0, out=output)
+
+        return output.view(B, original_num_points, C + 8)

@@ -121,6 +121,11 @@ class Trainer(TrainerBase):
             'weight_decay': 1e-5
             },
             {
+                'params': self.model.corse_discriminator.parameters(),
+                'lr': self.model.dsc_lr,
+                'weight_decay': 1e-5
+            },
+            {
                 'params': self.model.pos_embed.parameters(),
                 'lr': self.model.lr,
                 'weight_decay': 1e-5
@@ -201,11 +206,14 @@ class Trainer(TrainerBase):
 
     def training_step(self, batch_data, batch_index):
         batch_data = comm.move_tensor_to_device(batch_data)
-        logits, voxel_labels = self.model(batch_data)
+        logits, full_mask, corse_logits, voxel_labels = self.model(batch_data)
 
-        loss = metrics.focal_loss(logits, voxel_labels, alpha=0.8, gamma=3, eps=1e-7)
+        full_loss = metrics.focal_loss(logits, full_mask, alpha=0.8, gamma=3, eps=1e-7)
+        voxel_loss = metrics.focal_loss(corse_logits, voxel_labels, alpha=0.8, gamma=3, eps=1e-7)
         logits = torch.sigmoid(logits)
-        p_ap, p_auroc, p_true, p_fake, f1, best_threshold = metrics.compute_metrics(None, logits, voxel_labels, None)
+        p_ap, p_auroc, p_true, p_fake, f1, best_threshold = metrics.compute_metrics(None, logits, full_mask, None)
+
+        loss = full_loss + voxel_loss * self.args.alpha
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -239,7 +247,7 @@ def main_worker(args):
     now = time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
     args.output_dir = f"output/Simple3D-{now}"
-    args.log_project = "Simple3DUpSampledV2"
+    args.log_project = "Simple3DUpSampledV3"
 
 
     comm.seed_everything(args.manual_seed)
@@ -252,8 +260,12 @@ def main_worker(args):
     # real_3d_classes = ["candybar"]
     auroc_list = {}
 
+    voxel_size = args.voxel_size
     for cls_name in real_3d_classes:
         args.log_tag = f"vs{args.voxel_size}-{cls_name}"
+        if cls_name in ["duck"]:
+            args.voxel_size = 0.7
+
         trainer = Trainer(cls_name, args, logger, debug=debug, callbacks=[
             CheckpointLoader(state_path=args.model_path, resume=not args.eval),
             IterationTimer(warmup_iter=2),
@@ -267,6 +279,8 @@ def main_worker(args):
             trainer.fit()
         else:
             trainer.test()
+
+        args.voxel_size = voxel_size
 
         pauroc = trainer.best_metric_value
         auroc_list[cls_name] = pauroc
@@ -294,6 +308,7 @@ if __name__ == "__main__":
     parser.add_argument('--S', type=float, default=0.03)
     parser.add_argument('--num_defects', type=int, default=6)
     parser.add_argument('--max_epoch', type=int, default=30)
+    parser.add_argument('--alpha', type=float, default=1.0)
 
     parser.add_argument('--eval', action="store_true", help='is evaluation')
     parser.add_argument('--model_path', type=str, default=None, help='model path')
