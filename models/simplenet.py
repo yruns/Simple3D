@@ -289,6 +289,10 @@ class SimpleNet(torch.nn.Module):
         if self.pre_proj > 0 and self.pre_projection is not None:
             features = self.pre_projection(features)
 
+        # Add noise to features
+        # noise = torch.randn_like(features) * 0.01
+        # features = features + noise
+
         corse_logits = self.corse_discriminator(features.squeeze(0)).squeeze(-1)
 
         # upsample

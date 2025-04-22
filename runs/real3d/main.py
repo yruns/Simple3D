@@ -69,7 +69,7 @@ class Trainer(TrainerBase):
             dsc_layers=2,  # 2
             dsc_hidden=None,  # 1024
             dsc_margin=0.2,  # 0.5
-            dsc_lr=0.001,
+            dsc_lr=1e-3,
             train_backbone=False,
             cos_lr=True,
             lr=1e-3,
@@ -115,22 +115,19 @@ class Trainer(TrainerBase):
 
     def configure_optimizers(self):
         logger.info("=> creating optimizer ...")
+        # Get all parameters except those from pre_projection and deep_feature_extractor
+        exclude_modules = ['pre_projection', 'deep_feature_extractor']
+        params = []
+        for name, param in self.model.named_parameters():
+            if not any(exclude_module in name for exclude_module in exclude_modules):
+                params.append(param)
+
+        # Create a single parameter group with the filtered parameters
         param_groups = [{
-            'params': self.model.discriminator.parameters(),
-            'lr': self.model.dsc_lr,
+            'params': params,
+            'lr': self.model.lr,  # Using the base learning rate
             'weight_decay': 1e-5
-            },
-            {
-                'params': self.model.corse_discriminator.parameters(),
-                'lr': self.model.dsc_lr,
-                'weight_decay': 1e-5
-            },
-            {
-                'params': self.model.pos_embed.parameters(),
-                'lr': self.model.lr,
-                'weight_decay': 1e-5
-            }
-        ]
+        }]
 
         if self.model.pre_proj > 0 and self.model.pre_projection is not None:
             param_groups.append({
@@ -208,8 +205,10 @@ class Trainer(TrainerBase):
         batch_data = comm.move_tensor_to_device(batch_data)
         logits, full_mask, corse_logits, voxel_labels = self.model(batch_data)
 
-        full_loss = metrics.focal_loss(logits, full_mask, alpha=0.8, gamma=3, eps=1e-7)
-        voxel_loss = metrics.focal_loss(corse_logits, voxel_labels, alpha=0.8, gamma=3, eps=1e-7)
+        full_loss = metrics.focal_loss(
+            logits, full_mask, alpha=self.args.focal_loss_a, gamma=self.args.focal_loss_g, eps=1e-7)
+        voxel_loss = metrics.focal_loss(
+            corse_logits, voxel_labels, alpha=self.args.focal_loss_a, gamma=self.args.focal_loss_g, eps=1e-7)
         logits = torch.sigmoid(logits)
         p_ap, p_auroc, p_true, p_fake, f1, best_threshold = metrics.compute_metrics(None, logits, full_mask, None)
 
@@ -247,7 +246,7 @@ def main_worker(args):
     now = time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
     args.output_dir = f"output/Simple3D-{now}"
-    args.log_project = "Simple3DUpSampledV3"
+    args.log_project = "Simple3DUpSampledV4"
 
 
     comm.seed_everything(args.manual_seed)
@@ -262,7 +261,8 @@ def main_worker(args):
 
     voxel_size = args.voxel_size
     for cls_name in real_3d_classes:
-        args.log_tag = f"vs{args.voxel_size}-{cls_name}"
+        args.log_tag = (f"vs{args.voxel_size}-{cls_name}-noise"
+                        f"-alpha{args.alpha}-focal{args.focal_loss_a}-{args.focal_loss_g}-aug{args.aug_pointcloud}")
         if cls_name in ["duck"]:
             args.voxel_size = 0.7
 
@@ -295,7 +295,7 @@ def main_worker(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='P2P')
+    parser = argparse.ArgumentParser(description='Simple3D')
     parser.add_argument('--data', type=str, default='./data')
     parser.add_argument('--manual_seed', type=int, default=2025)
     parser.add_argument('--faiss_on_gpu', default=True, type=bool)
@@ -307,8 +307,10 @@ if __name__ == "__main__":
     parser.add_argument('--defect_ratio', type=float, default=0.004)
     parser.add_argument('--S', type=float, default=0.03)
     parser.add_argument('--num_defects', type=int, default=6)
-    parser.add_argument('--max_epoch', type=int, default=30)
+    parser.add_argument('--max_epoch', type=int, default=20)
     parser.add_argument('--alpha', type=float, default=1.0)
+    parser.add_argument('--focal_loss_a', type=float, default=0.5)
+    parser.add_argument('--focal_loss_g', type=float, default=2)
 
     parser.add_argument('--eval', action="store_true", help='is evaluation')
     parser.add_argument('--model_path', type=str, default=None, help='model path')
