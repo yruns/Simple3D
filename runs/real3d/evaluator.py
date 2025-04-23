@@ -142,7 +142,7 @@ class Visualizer(CallbackBase):
     def eval_step(self, pointcloud):
         model = self.trainer.model
 
-        features, _, voxel_indices = model.embed_pointmae(pointcloud, trianing=False)
+        features, _, voxel_indices = model.embed_pointmae(pointcloud, gt_mask=None)  # Fixed parameter name
         if model.pre_proj > 0 and model.pre_projection is not None:
             features = model.pre_projection(features)
         logits = model.discriminator(features).squeeze(-1)
