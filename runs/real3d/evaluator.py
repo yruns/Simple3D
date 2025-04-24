@@ -32,17 +32,7 @@ class ClsEvaluator(CallbackBase):
     def eval_step(self, pointcloud, gt_mask):
         model = self.trainer.model
 
-        num_points = pointcloud.shape[1]
-        features, ori_idx, gt_mask = model.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
-        if model.pre_proj > 0 and model.pre_projection is not None:
-            features = model.pre_projection(features)
-
-        features = upsample(features.unsqueeze(0), ori_idx, num_points)
-        xyz = model.pos_embed(pointcloud)
-        features = features + xyz
-        scores = model.discriminator(features.squeeze(0)).squeeze(-1)
-
-        return scores.detach().cpu().numpy()
+        return model.eval_step(pointcloud, gt_mask)
 
     @torch.no_grad()
     def eval(self):
@@ -104,7 +94,7 @@ class ClsEvaluator(CallbackBase):
         os.makedirs(os.path.join(self.trainer.output_dir, "eval"), exist_ok=True)
         with open(os.path.join(
                 self.trainer.output_dir, "eval",
-                f"{self.trainer.epoch}_{'best' if p_auroc >= self.best_acc else ''}.pkl"
+                f"{self.trainer.cls_name}_{self.trainer.epoch}_{'best' if p_auroc >= self.best_acc else ''}.pkl"
         ), "wb") as f:
             pickle.dump(save_dict, f)
             self.trainer.logger.info("Save evaluation results to %s" % f.name)
@@ -142,7 +132,7 @@ class Visualizer(CallbackBase):
     def eval_step(self, pointcloud):
         model = self.trainer.model
 
-        features, _, voxel_indices = model.embed_pointmae(pointcloud, gt_mask=None)  # Fixed parameter name
+        features, _, voxel_indices = model.embed_pointmae(pointcloud, trianing=False)
         if model.pre_proj > 0 and model.pre_projection is not None:
             features = model.pre_projection(features)
         logits = model.discriminator(features).squeeze(-1)

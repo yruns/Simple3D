@@ -24,6 +24,9 @@ from trim.thirdparty.logging import logger
 from trim.utils import comm, dist
 from utils import metrics
 
+import sys
+from trim.utils.classes import Tee
+
 
 class Trainer(TrainerBase):
 
@@ -69,16 +72,17 @@ class Trainer(TrainerBase):
             dsc_layers=2,  # 2
             dsc_hidden=None,  # 1024
             dsc_margin=0.2,  # 0.5
-            dsc_lr=1e-3,
+            dsc_lr=self.args.lr,
             train_backbone=False,
             cos_lr=True,
-            lr=1e-3,
+            lr=self.args.lr,
             pre_proj=1,  # 1
             proj_layer_type=0,
 
             defect_ratio=self.args.defect_ratio,
             S=self.args.S,
             num_defects=self.args.num_defects,
+            upsample=self.args.upsample,
         )
         self.max_epoch = self.args.max_epoch
 
@@ -172,9 +176,6 @@ class Trainer(TrainerBase):
 
     def on_training_epoch_end(self):
         if not self.args.eval:
-            # Free up GPU memory
-            torch.cuda.empty_cache()
-
             if self.model.cos_lr:
                 self.scheduler.step()
 
@@ -248,8 +249,14 @@ def main_worker(args):
     import time
     now = time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
+    global_tag = (f"vs{args.voxel_size}-upsample{args.upsample}-defect{args.num_defects}"
+                 f"-alpha{args.alpha}-focal{args.focal_loss_a}-{args.focal_loss_g}-aug{args.aug_pointcloud}")
     args.output_dir = f"output/Simple3D-{now}"
-    args.log_project = "Simple3DUpSampledV6"
+    args.log_project = f"Simple3DV-{global_tag}-{now}"
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    log_file = open(f'{args.output_dir}/output.log', 'w+')
+    sys.stdout = Tee(sys.stdout, log_file)
 
     comm.seed_everything(args.manual_seed)
     comm.copy_codebase(args.output_dir)
@@ -263,8 +270,7 @@ def main_worker(args):
 
     voxel_size = args.voxel_size
     for cls_name in real_3d_classes:
-        args.log_tag = (f"vs{args.voxel_size}-{cls_name}-noise"
-                        f"-alpha{args.alpha}-focal{args.focal_loss_a}-{args.focal_loss_g}-aug{args.aug_pointcloud}")
+        args.log_tag = cls_name + "-" + global_tag
         if cls_name in ["duck"]:
             args.voxel_size = 0.7
 
@@ -285,15 +291,29 @@ def main_worker(args):
         args.voxel_size = voxel_size
 
         pauroc = trainer.best_metric_value
-        auroc_list[cls_name] = pauroc
+        auroc_list[cls_name] = {"pauroc": pauroc, "output_dir": trainer.output_dir,}
 
     # Statistics
-    for cls_name, pauroc in auroc_list.items():
+    pure_auroc = np.array([item["pauroc"] for item in auroc_list.values()])
+    for cls_name, item in auroc_list.items():
+        pauroc = item["pauroc"]
         print(f"Class: {cls_name}, AUROC: {pauroc:.4f}")
         logger.info(f"Class: {cls_name}, AUROC: {pauroc:.4f}")
-    print("Mean AUROC: ", np.mean(list(auroc_list.values())))
-    logger.info("Mean AUROC: %f" % np.mean(list(auroc_list.values())))
-    # trainer.wandb.update({"mean_auroc": np.mean(list(auroc_list.values()))})
+    print("Mean AUROC: ", np.mean(pure_auroc))
+    logger.info("Mean AUROC: %f" % np.mean(pure_auroc))
+
+    import wandb
+    wandb.init(
+        project=args.log_project,
+        name=f"overall-{global_tag}",
+        config={
+            "config": vars(args),
+            "result": auroc_list,
+            "mean_pauroc": np.mean(pure_auroc)
+        },
+    )
+    # wandb.log(auroc_list)
+    wandb.finish()
 
 
 if __name__ == "__main__":
@@ -308,11 +328,13 @@ if __name__ == "__main__":
     parser.add_argument('--aug_pointcloud', type=bool, default=False)
     parser.add_argument('--defect_ratio', type=float, default=0.004)
     parser.add_argument('--S', type=float, default=0.03)
-    parser.add_argument('--num_defects', type=int, default=2)
+    parser.add_argument('--num_defects', type=int, default=1)
     parser.add_argument('--max_epoch', type=int, default=20)
     parser.add_argument('--alpha', type=float, default=1.0)
     parser.add_argument('--focal_loss_a', type=float, default=0.2)
     parser.add_argument('--focal_loss_g', type=float, default=2)
+    parser.add_argument('--upsample', type=str, default="v0")
+    parser.add_argument('--lr', type=float, default=1e-3)
 
     parser.add_argument('--eval', action="store_true", help='is evaluation')
     parser.add_argument('--model_path', type=str, default=None, help='model path')

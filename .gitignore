@@ -5,3 +5,6 @@ assets/
 __pycache__/
 *.pyc
 
+IMPROVEMENTS_EN.md
+IMPROVEMENTS.md
+

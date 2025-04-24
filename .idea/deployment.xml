@@ -2,6 +2,13 @@
 <project version="4">
   <component name="PublishConfigData" autoUpload="Always" serverName="real3d" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
+      <paths name="1080Ti">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/shyue/paper-code/anomaly-detection/simple3d" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="real3d">
         <serverdata>
           <mappings>

@@ -22,8 +22,8 @@ def augment_point_cloud(point_cloud):
         增强后的点云: numpy数组，形状为(N, 3)
     """
     # 各向异性缩放（每个轴独立缩放）
-    scale_factor = np.random.uniform(low=0.9, high=1.1, size=3)
-    point_cloud = point_cloud * scale_factor
+    # scale_factor = np.random.uniform(low=0.8, high=1.2, size=3)
+    # point_cloud = point_cloud * scale_factor
 
     # 生成随机旋转轴和角度
     axis = np.random.normal(size=3)
