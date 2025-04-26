@@ -33,15 +33,20 @@ def focal_loss(inputs, targets, alpha=0.7, gamma=2, eps=1e-7):
     return loss.mean()  # 返回batch平均损失
 
 
-def compute_metrics(logits, mask_pred, mask_gt, label_gt):
+def compute_metrics(obj_pred, mask_pred, mask_gt, obj_gt):
     # to numpy
-    logits = to_numpy(logits)
+    obj_pred = to_numpy(obj_pred)
     mask_pred = to_numpy(mask_pred)
     mask_gt = to_numpy(mask_gt)
-    label_gt = to_numpy(label_gt)
+    obj_gt = to_numpy(obj_gt)
 
     p_ap = average_precision_score(mask_gt, mask_pred)
     p_auroc = roc_auc_score(mask_gt, mask_pred)
+
+    o_ap, o_auroc = None, None
+    if obj_pred is not None and obj_gt is not None:
+        o_ap = average_precision_score(obj_gt, obj_pred)
+        o_auroc = roc_auc_score(obj_gt, obj_pred)
 
     precision, recall, thresholds = precision_recall_curve(mask_gt, mask_pred)
     # 计算每个阈值对应的F1
@@ -55,7 +60,7 @@ def compute_metrics(logits, mask_pred, mask_gt, label_gt):
     p_true = (preds[true_indices] == mask_gt[true_indices]).astype(np.float32).mean()
     p_fake = (preds[fake_indices] == mask_gt[fake_indices]).astype(np.float32).mean()
 
-    return p_ap, p_auroc, p_true, p_fake, f1_scores[best_idx], best_threshold
+    return p_ap, p_auroc, o_ap, o_auroc, p_true, p_fake, f1_scores[best_idx], best_threshold
 
 
 def compute_imagewise_retrieval_metrics(

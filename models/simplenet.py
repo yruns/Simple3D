@@ -408,3 +408,4 @@ class SimpleNet(torch.nn.Module):
         output = torch_scatter.scatter_mean(combined_features, original_indices, dim=0, out=output)
 
         return output.view(B, original_num_points, C + 8)
+

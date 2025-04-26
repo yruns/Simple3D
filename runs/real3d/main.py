@@ -50,6 +50,16 @@ class Trainer(TrainerBase):
         self.callbacks = callbacks or []
         self.debug = debug
 
+        self.metrics_history = {
+            "best_pauroc": 0,
+            "best_pauroc_epoch": 0,
+            "oauroc_when_p_best": 0,
+
+            "best_oauroc": 0,
+            "best_oauroc_epoch": 0,
+            "pauroc_when_o_best": 0,
+        }
+
     def configure_model(self):
         logger.info("=> creating model ...")
         from patchcore.common import FaissNN
@@ -158,7 +168,7 @@ class Trainer(TrainerBase):
             save_code=False,
             resume=False,
             file_prefix=os.path.join(self.output_dir, "codebase"),
-            save_files=[__file__, *glob("models/*.py"), *glob("runs/real3d/evaluator.py")],
+            save_files=[__file__, *glob("models/*.py"), *glob("runs/real3d/evaluator.py"), *glob("utils/metrics.py")],
             debug=self.debug or self.args.no_wandb
         )
         self.wandb.update({"output_dir": self.output_dir})
@@ -207,14 +217,15 @@ class Trainer(TrainerBase):
 
     def training_step(self, batch_data, batch_index):
         batch_data = comm.move_tensor_to_device(batch_data)
-        logits, full_mask, voxel_indices, voxel_labels = self.model(batch_data)
+        mask_pred, full_mask, voxel_indices, voxel_labels = self.model(batch_data)
 
         full_loss = metrics.focal_loss(
-            logits, full_mask, alpha=self.args.focal_loss_a, gamma=self.args.focal_loss_g, eps=1e-7)
+            mask_pred, full_mask, alpha=self.args.focal_loss_a, gamma=self.args.focal_loss_g, eps=1e-7)
         voxel_loss = metrics.focal_loss(
-            logits[voxel_indices], voxel_labels, alpha=self.args.focal_loss_a, gamma=self.args.focal_loss_g, eps=1e-7)
-        logits = torch.sigmoid(logits)
-        p_ap, p_auroc, p_true, p_fake, f1, best_threshold = metrics.compute_metrics(None, logits, full_mask, None)
+            mask_pred[voxel_indices], voxel_labels, alpha=self.args.focal_loss_a, gamma=self.args.focal_loss_g, eps=1e-7)
+        mask_pred = torch.sigmoid(mask_pred)
+        p_ap, p_auroc, _, _, p_true, p_fake, f1, best_threshold = \
+            metrics.compute_metrics(None, mask_pred, full_mask, None)
 
         loss = full_loss + voxel_loss * self.args.alpha
 
@@ -249,7 +260,7 @@ def main_worker(args):
     import time
     now = time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
-    global_tag = (f"vs{args.voxel_size}-upsample{args.upsample}-defect{args.num_defects}"
+    global_tag = (f"vs{args.voxel_size}-upsample{args.upsample}-defect{args.num_defects}-defect_ratio{args.defect_ratio}-lr{args.lr}"
                  f"-alpha{args.alpha}-focal{args.focal_loss_a}-{args.focal_loss_g}-aug{args.aug_pointcloud}")
     args.output_dir = f"output/Simple3D-{now}"
     args.log_project = f"Simple3DV-{global_tag}-{now}"
@@ -264,7 +275,7 @@ def main_worker(args):
     debug = args.eval or args.debug
     from runs.real3d.evaluator import ClsEvaluator
 
-    real_3d_classes = sorted(os.listdir(args.data))
+    real_3d_classes = sorted(os.listdir(args.data))[:2]
     # real_3d_classes = ["candybar"]
     auroc_list = {}
 
@@ -290,17 +301,36 @@ def main_worker(args):
 
         args.voxel_size = voxel_size
 
-        pauroc = trainer.best_metric_value
-        auroc_list[cls_name] = {"pauroc": pauroc, "output_dir": trainer.output_dir,}
+
+        auroc_list[cls_name] = {
+            "pauroc_when_p": trainer.metrics_history["best_pauroc"],
+            "oauroc_when_p": trainer.metrics_history["oauroc_when_p_best"],
+            "pauroc_when_o": trainer.metrics_history["pauroc_when_o_best"],
+            "oauroc_when_o": trainer.metrics_history["best_oauroc"],
+            "best_epoch_when_p": trainer.metrics_history["best_pauroc_epoch"],
+            "best_epoch_when_o": trainer.metrics_history["best_oauroc_epoch"],
+            "output_dir": trainer.output_dir,
+        }
 
     # Statistics
-    pure_auroc = np.array([item["pauroc"] for item in auroc_list.values()])
     for cls_name, item in auroc_list.items():
-        pauroc = item["pauroc"]
-        print(f"Class: {cls_name}, AUROC: {pauroc:.4f}")
-        logger.info(f"Class: {cls_name}, AUROC: {pauroc:.4f}")
-    print("Mean AUROC: ", np.mean(pure_auroc))
-    logger.info("Mean AUROC: %f" % np.mean(pure_auroc))
+        print("Class: %s" % cls_name)
+        print("When P-AUROC is best: ")
+        print("P-AUROC: %f" % item["pauroc_when_p"])
+        print("O-AUROC: %f" % item["oauroc_when_p"])
+        print("When O-AUROC is best: ")
+        print("P-AUROC: %f" % item["pauroc_when_o"])
+        print("O-AUROC: %f" % item["oauroc_when_o"])
+        print("Is at the same time: %s" % (item["best_epoch_when_p"] == item["best_epoch_when_o"]))
+        print("")
+
+    print("" + "=" * 20)
+    print("When P-AUROC is best: ")
+    print("P-AUROC: %f" % np.mean([item["pauroc_when_p"] for item in auroc_list.values()]))
+    print("O-AUROC: %f" % np.mean([item["oauroc_when_p"] for item in auroc_list.values()]))
+    print("When O-AUROC is best: ")
+    print("P-AUROC: %f" % np.mean([item["pauroc_when_o"] for item in auroc_list.values()]))
+    print("O-AUROC: %f" % np.mean([item["oauroc_when_o"] for item in auroc_list.values()]))
 
     import wandb
     wandb.init(
@@ -309,10 +339,18 @@ def main_worker(args):
         config={
             "config": vars(args),
             "result": auroc_list,
-            "mean_pauroc": np.mean(pure_auroc)
+            "MEAN-P-AUROC-when-p": np.mean([item["pauroc_when_p"] for item in auroc_list.values()]),
+            "MEAN-O-AUROC-when-p": np.mean([item["oauroc_when_p"] for item in auroc_list.values()]),
+            "MEAN-P-AUROC-when-o": np.mean([item["pauroc_when_o"] for item in auroc_list.values()]),
+            "MEAN-O-AUROC-when-o": np.mean([item["oauroc_when_o"] for item in auroc_list.values()]),
+
+            "output_dir": args.output_dir,
+            "log_file": f'{args.output_dir}/output.log'
         },
     )
     # wandb.log(auroc_list)
+    # upload log_file
+    wandb.save(f"{args.output_dir}/output.log")
     wandb.finish()
 
 
@@ -326,14 +364,14 @@ if __name__ == "__main__":
     parser.add_argument('--eval_interval', type=int, default=1)
     parser.add_argument('--voxel_size', type=float, default=0.5)
     parser.add_argument('--aug_pointcloud', type=bool, default=False)
-    parser.add_argument('--defect_ratio', type=float, default=0.004)
+    parser.add_argument('--defect_ratio', type=float, default=0.008)
     parser.add_argument('--S', type=float, default=0.03)
     parser.add_argument('--num_defects', type=int, default=1)
-    parser.add_argument('--max_epoch', type=int, default=20)
-    parser.add_argument('--alpha', type=float, default=1.0)
+    parser.add_argument('--max_epoch', type=int, default=15)
+    parser.add_argument('--alpha', type=float, default=0.1)
     parser.add_argument('--focal_loss_a', type=float, default=0.2)
     parser.add_argument('--focal_loss_g', type=float, default=2)
-    parser.add_argument('--upsample', type=str, default="v0")
+    parser.add_argument('--upsample', type=str, default="v1")
     parser.add_argument('--lr', type=float, default=1e-3)
 
     parser.add_argument('--eval', action="store_true", help='is evaluation')
