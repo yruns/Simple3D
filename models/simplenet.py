@@ -148,7 +148,8 @@ class SimpleNet(torch.nn.Module):
             defect_ratio=0.004,
             S=0.03,
             num_defects=6,
-            upsample="v0"
+            upsample="v0",
+            no_anomaly=False
     ) -> None:
         super().__init__()
         self.layers_to_extract_from = layers_to_extract_from
@@ -157,6 +158,7 @@ class SimpleNet(torch.nn.Module):
         self.S = S
         self.num_defects = num_defects
         self.upsample_m = upsample
+        self.no_anomaly = no_anomaly
 
         # self.forward_modules = torch.nn.ModuleDict({})
         self.voxel_size = voxel_size
@@ -262,7 +264,7 @@ class SimpleNet(torch.nn.Module):
             #     self.basic_template
             # )
             point_cloud, gt_mask = simulate_realistic_industrial_anomaly(
-                point_cloud, defect_ratio=self.defect_ratio, S=self.S, num_defects=self.num_defects)
+                point_cloud, defect_ratio=self.defect_ratio, S=self.S, num_defects=self.num_defects, no_anomaly=self.no_anomaly)
 
         voxel_points, voxel_indices, voxel_labels = voxel_downsample_with_anomalies(
             point_cloud, gt_mask, voxel_size=self.voxel_size)
@@ -279,7 +281,8 @@ class SimpleNet(torch.nn.Module):
         if training:
             return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), ori_idx, gt_mask, \
                     torch.from_numpy(voxel_indices).cuda(), torch.from_numpy(voxel_labels).cuda(), center_idx
-        return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), ori_idx, gt_mask, center_idx
+        return pmae_features.squeeze(0).detach().permute(1, 0).contiguous(), ori_idx, gt_mask, \
+            voxel_indices, center_idx
 
     def forward(self, batch_data):
         """
@@ -312,14 +315,14 @@ class SimpleNet(torch.nn.Module):
         return logits, gt_mask, voxel_indices, voxel_labels
 
     def eval_step(self, pointcloud, gt_mask):
-        features, ori_idx, gt_mask, center_idx = self.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
+        features, ori_idx, gt_mask, voxel_indices, center_idx = self.embed_pointmae(pointcloud, gt_mask.squeeze(0).cpu().numpy())
         if self.pre_proj > 0 and self.pre_projection is not None:
             features = self.pre_projection(features)
 
         features = self.upsample_forward(features, ori_idx, pointcloud, center_idx)
-        scores = self.discriminator(features.squeeze(0)).squeeze(-1)
+        scores = self.discriminator(features.squeeze(0)).squeeze(-1).detach().cpu().numpy()
 
-        return scores.detach().cpu().numpy()
+        return scores, scores[voxel_indices]
 
     def upsample_forward(self, features, ori_idx, input_pointcloud, center_idx=None):
         # upsample

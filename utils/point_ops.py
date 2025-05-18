@@ -117,13 +117,14 @@ def apply_deformation(Pa, indices, Pv, mode=None, S=0.3):
     return Pa_trans
 
 
-def simulate_realistic_industrial_anomaly(P, defect_ratio=0.004, S=0.03, num_defects=6):
+def simulate_realistic_industrial_anomaly(P, defect_ratio=0.004, S=0.03, num_defects=6, no_anomaly=False):
     """模拟多个工业异常区域（简化版）
     Args:
         P: 原始点云，形状为 (N, 3)
         defect_ratio: 每个缺陷区域占点数的比例（总缺陷点数 = num_defects * defect_ratio * N）
         S: 变形强度
         num_defects: 生成的缺陷区域数量，随机 1 ~ num_defects
+        :param no_anomaly: at least one defect
     """
     # 立方体归一化
     Pa_normalized, centroid, scale = normalize_cube(P)
@@ -132,7 +133,7 @@ def simulate_realistic_industrial_anomaly(P, defect_ratio=0.004, S=0.03, num_def
     Pa_deformed = Pa_normalized.copy()
 
     # 生成多个独立缺陷
-    num_defects = np.random.randint(1, num_defects + 1)
+    num_defects = np.random.randint(0 if no_anomaly else 1, num_defects + 1)
     for _ in range(num_defects):
         # 随机选择视点和缺陷点（允许区域重叠）
         N_defect = int(total_points * defect_ratio)

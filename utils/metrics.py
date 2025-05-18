@@ -40,6 +40,13 @@ def compute_metrics(obj_pred, mask_pred, mask_gt, obj_gt):
     mask_gt = to_numpy(mask_gt)
     obj_gt = to_numpy(obj_gt)
 
+    if mask_gt.sum() == 0:
+        # 如果没有正样本，设置一个正样本
+        mask_gt[0] = 1
+
+    # normal
+    if mask_pred is not None:
+        mask_pred = (mask_pred - mask_pred.min()) / (mask_pred.max() - mask_pred.min())
     p_ap = average_precision_score(mask_gt, mask_pred)
     p_auroc = roc_auc_score(mask_gt, mask_pred)
 

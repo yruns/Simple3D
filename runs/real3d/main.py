@@ -93,6 +93,7 @@ class Trainer(TrainerBase):
             S=self.args.S,
             num_defects=self.args.num_defects,
             upsample=self.args.upsample,
+            no_anomaly=self.args.no_anomaly,
         )
         self.max_epoch = self.args.max_epoch
 
@@ -261,7 +262,7 @@ def main_worker(args):
     now = time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
     global_tag = (f"vs{args.voxel_size}-upsample{args.upsample}-defect{args.num_defects}-defect_ratio{args.defect_ratio}-lr{args.lr}"
-                 f"-alpha{args.alpha}-focal{args.focal_loss_a}-{args.focal_loss_g}-aug{args.aug_pointcloud}")
+                 f"-alpha{args.alpha}-focal{args.focal_loss_a}-{args.focal_loss_g}-aug{args.aug_pointcloud}-no_anomaly{args.no_anomaly}")
     args.output_dir = f"output/Simple3D-{now}"
     args.log_project = f"Simple3DV-{global_tag}-{now}"
 
@@ -275,7 +276,7 @@ def main_worker(args):
     debug = args.eval or args.debug
     from runs.real3d.evaluator import ClsEvaluator
 
-    real_3d_classes = sorted(os.listdir(args.data))[:2]
+    real_3d_classes = sorted(os.listdir(args.data))
     # real_3d_classes = ["candybar"]
     auroc_list = {}
 
@@ -309,8 +310,26 @@ def main_worker(args):
             "oauroc_when_o": trainer.metrics_history["best_oauroc"],
             "best_epoch_when_p": trainer.metrics_history["best_pauroc_epoch"],
             "best_epoch_when_o": trainer.metrics_history["best_oauroc_epoch"],
+            "error_metrics": trainer.metrics_history["error_metrics"],
             "output_dir": trainer.output_dir,
         }
+
+    import wandb
+    wandb.init(
+        project=args.log_project,
+        name=f"overall-{global_tag}",
+        config={
+            "config": vars(args),
+            "result": auroc_list,
+            "MEAN-P-AUROC-when-p": np.mean([item["pauroc_when_p"] for item in auroc_list.values()]),
+            "MEAN-O-AUROC-when-p": np.mean([item["oauroc_when_p"] for item in auroc_list.values()]),
+            "MEAN-P-AUROC-when-o": np.mean([item["pauroc_when_o"] for item in auroc_list.values()]),
+            "MEAN-O-AUROC-when-o": np.mean([item["oauroc_when_o"] for item in auroc_list.values()]),
+
+            "output_dir": args.output_dir,
+            "log_file": f'{args.output_dir}/output.log'
+        },
+    )
 
     # Statistics
     for cls_name, item in auroc_list.items():
@@ -332,22 +351,6 @@ def main_worker(args):
     print("P-AUROC: %f" % np.mean([item["pauroc_when_o"] for item in auroc_list.values()]))
     print("O-AUROC: %f" % np.mean([item["oauroc_when_o"] for item in auroc_list.values()]))
 
-    import wandb
-    wandb.init(
-        project=args.log_project,
-        name=f"overall-{global_tag}",
-        config={
-            "config": vars(args),
-            "result": auroc_list,
-            "MEAN-P-AUROC-when-p": np.mean([item["pauroc_when_p"] for item in auroc_list.values()]),
-            "MEAN-O-AUROC-when-p": np.mean([item["oauroc_when_p"] for item in auroc_list.values()]),
-            "MEAN-P-AUROC-when-o": np.mean([item["pauroc_when_o"] for item in auroc_list.values()]),
-            "MEAN-O-AUROC-when-o": np.mean([item["oauroc_when_o"] for item in auroc_list.values()]),
-
-            "output_dir": args.output_dir,
-            "log_file": f'{args.output_dir}/output.log'
-        },
-    )
     # wandb.log(auroc_list)
     # upload log_file
     wandb.save(f"{args.output_dir}/output.log")
@@ -362,10 +365,10 @@ if __name__ == "__main__":
     parser.add_argument('--faiss_num_workers', default=8, type=int)
     parser.add_argument('--anomaly_scorer_num_nn', default=1, type=int)
     parser.add_argument('--eval_interval', type=int, default=1)
-    parser.add_argument('--voxel_size', type=float, default=0.5)
+    parser.add_argument('--voxel_size', type=float, default=0.7)
     parser.add_argument('--aug_pointcloud', type=bool, default=False)
     parser.add_argument('--defect_ratio', type=float, default=0.008)
-    parser.add_argument('--S', type=float, default=0.03)
+    parser.add_argument('--S', type=float, default=0.06)
     parser.add_argument('--num_defects', type=int, default=1)
     parser.add_argument('--max_epoch', type=int, default=15)
     parser.add_argument('--alpha', type=float, default=0.1)
@@ -373,6 +376,7 @@ if __name__ == "__main__":
     parser.add_argument('--focal_loss_g', type=float, default=2)
     parser.add_argument('--upsample', type=str, default="v1")
     parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--no_anomaly', type=bool, default=True)
 
     parser.add_argument('--eval', action="store_true", help='is evaluation')
     parser.add_argument('--model_path', type=str, default=None, help='model path')
